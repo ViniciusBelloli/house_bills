@@ -1,0 +1,17 @@
+{
+  "name": "house-bills",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter bills-core build && pnpm --filter web build",
+    "test": "pnpm --filter bills-core test",
+    "import": "pnpm --filter import-xlsx start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}
