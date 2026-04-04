@@ -140,6 +140,11 @@ function parseMonthSheet(
 
   // Spreadsheet months are all cylinder-type gas (they track individual cylinder purchases).
   // buyDate is not recorded in the spreadsheet, so we leave it null.
+  const gasUtility = utilities.find((u) => u.type === 'gas');
+  const gasCylinders = gasCylinderInstallDate
+    ? [{ total: gasUtility?.total ?? 0, buyDate: null, installDate: gasCylinderInstallDate }]
+    : [];
+
   return {
     monthId,
     monthLabel,
@@ -147,8 +152,7 @@ function parseMonthSheet(
     residents,
     internetFixedCost,
     gasType: 'cylinder' as const,
-    gasCylinderBuyDate: null,
-    gasCylinderInstallDate,
+    gasCylinders,
   };
 }
 

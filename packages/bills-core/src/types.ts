@@ -1,9 +1,7 @@
 import { z } from 'zod';
 
 export type ResidentName = string;
-
 export type UtilityType = 'electricity' | 'gas' | 'water';
-
 export type GasType = 'cylinder' | 'pipe';
 
 export const UtilityBillSchema = z.object({
@@ -18,30 +16,36 @@ export type UtilityBill = z.infer<typeof UtilityBillSchema>;
 
 export const ResidentDailyWeightsSchema = z.object({
   resident: z.string(),
-  // ISO date string -> weight (null = not present that day)
   days: z.record(z.string(), z.number().nullable()),
 });
 export type ResidentDailyWeights = z.infer<typeof ResidentDailyWeightsSchema>;
 
+/**
+ * One physical gas cylinder purchase within a month.
+ * A month can have multiple (e.g. two cylinders bought in March).
+ */
+export const GasCylinderEntrySchema = z.object({
+  total: z.number(),                             // cost of this cylinder
+  buyDate: z.string().nullable().optional(),     // ISO date — when purchased at shop
+  installDate: z.string().nullable().optional(), // ISO date — when connected at home
+  notes: z.string().nullable().optional(),
+});
+export type GasCylinderEntry = z.infer<typeof GasCylinderEntrySchema>;
+
 export const MonthlyBillDataSchema = z.object({
-  monthId: z.string(),    // e.g. "2026-03"
-  monthLabel: z.string(), // e.g. "Março 2026"
+  monthId: z.string(),
+  monthLabel: z.string(),
   utilities: z.array(UtilityBillSchema),
   residents: z.array(ResidentDailyWeightsSchema),
   internetFixedCost: z.number().nullable().optional(),
 
-  // Gas billing method for this month.
-  // 'cylinder' → equal split among all residents, track cylinder dates.
-  // 'pipe'     → weighted daily split (same logic as electricity/water).
-  // Defaults to 'cylinder' when absent (backward-compatible with imported data).
+  // 'cylinder' → equal split; 'pipe' → weighted daily split.
+  // Defaults to 'cylinder' when absent.
   gasType: z.enum(['cylinder', 'pipe']).optional(),
 
-  // Cylinder-only fields.
-  // buyDate     = when the cylinder was purchased at the shop.
-  // installDate = when it was connected/opened at home.
-  // Duration of a cylinder = installDate(next) - installDate(current).
-  gasCylinderBuyDate: z.string().nullable().optional(),     // ISO date
-  gasCylinderInstallDate: z.string().nullable().optional(), // ISO date
+  // Cylinder purchases this month (cylinder type only).
+  // The gas utility total should equal the sum of these totals.
+  gasCylinders: z.array(GasCylinderEntrySchema).optional(),
 });
 export type MonthlyBillData = z.infer<typeof MonthlyBillDataSchema>;
 
@@ -50,7 +54,7 @@ export type MonthlyBillData = z.infer<typeof MonthlyBillDataSchema>;
 export interface UtilityResidentShare {
   resident: ResidentName;
   weightedParts: number;
-  share: number; // euros
+  share: number;
 }
 
 export interface UtilitySummary {
@@ -58,7 +62,6 @@ export interface UtilitySummary {
   totalParts: number;
   euroPerPart: number;
   residentShares: UtilityResidentShare[];
-  /** true when this is a cylinder-gas equal split (weightedParts = 1 for everyone) */
   isCylinderSplit: boolean;
 }
 
@@ -83,10 +86,16 @@ export interface MonthlySummary {
   residentTotals: ResidentMonthlyTotal[];
 }
 
+/**
+ * One cylinder's record used in the duration chart.
+ * Multiple records can share the same monthId when a month has >1 cylinder.
+ */
 export interface GasCylinderRecord {
   monthId: string;
   monthLabel: string;
+  cylinderIndex: number;  // 0-based within the month
+  chartLabel: string;     // e.g. "Março" or "Março·2"
   buyDate: string | null;
-  installDate: string;          // ISO date — used as the anchor for duration
-  durationDays: number | null;  // null = next cylinder not yet recorded
+  installDate: string;
+  durationDays: number | null;
 }

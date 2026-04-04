@@ -470,42 +470,87 @@ describe('cylinder gas — equal split', () => {
     const gasSummary = summary.utilitySummaries.find((u) => u.utility.type === 'gas')!;
     expect(gasSummary.isCylinderSplit).toBe(true);
   });
+
+  it('cylinder gas with no residents pays 0', () => {
+    const summary = buildCylinderGasSummary(gasUtility, []);
+    expect(summary.residentShares).toHaveLength(0);
+    expect(summary.euroPerPart).toBe(0);
+  });
 });
 
 // --- getGasCylinderRecords ---
 
+function makeCylinder(installDate: string, buyDate?: string, total = 30) {
+  return { total, buyDate: buyDate ?? null, installDate };
+}
+
 describe('getGasCylinderRecords', () => {
   it('computes duration between consecutive install dates', () => {
     const months: MonthlyBillData[] = [
-      makeData({ monthId: '2026-02', monthLabel: 'Fevereiro 2026', gasType: 'cylinder', gasCylinderInstallDate: '2026-02-14' }),
-      makeData({ monthId: '2026-03', monthLabel: 'Março 2026',     gasType: 'cylinder', gasCylinderInstallDate: '2026-03-06' }),
-      makeData({ monthId: '2026-04', monthLabel: 'Abril 2026',     gasType: 'cylinder', gasCylinderInstallDate: '2026-03-25' }),
+      makeData({ monthId: '2026-02', monthLabel: 'Fevereiro 2026', gasType: 'cylinder', gasCylinders: [makeCylinder('2026-02-14')] }),
+      makeData({ monthId: '2026-03', monthLabel: 'Março 2026',     gasType: 'cylinder', gasCylinders: [makeCylinder('2026-03-06')] }),
+      makeData({ monthId: '2026-04', monthLabel: 'Abril 2026',     gasType: 'cylinder', gasCylinders: [makeCylinder('2026-03-25')] }),
     ];
     const records = getGasCylinderRecords(months);
     expect(records).toHaveLength(3);
     expect(records[0]!.durationDays).toBe(20); // Feb→Mar
     expect(records[1]!.durationDays).toBe(19); // Mar→Apr
-    expect(records[2]!.durationDays).toBeNull(); // last, no next
+    expect(records[2]!.durationDays).toBeNull();
   });
 
   it('exposes buyDate on each record', () => {
     const months: MonthlyBillData[] = [
-      makeData({ monthId: '2026-02', gasType: 'cylinder', gasCylinderInstallDate: '2026-02-14', gasCylinderBuyDate: '2026-02-13' }),
+      makeData({ monthId: '2026-02', gasType: 'cylinder', gasCylinders: [makeCylinder('2026-02-14', '2026-02-13')] }),
     ];
     const records = getGasCylinderRecords(months);
     expect(records[0]!.buyDate).toBe('2026-02-13');
   });
 
-  it('excludes pipe-gas months', () => {
+  it('handles multiple cylinders in the same month', () => {
     const months: MonthlyBillData[] = [
-      makeData({ monthId: '2026-02', gasType: 'cylinder', gasCylinderInstallDate: '2026-02-14' }),
-      makeData({ monthId: '2026-03', gasType: 'pipe' }),
+      makeData({
+        monthId: '2026-03', monthLabel: 'Março 2026', gasType: 'cylinder',
+        gasCylinders: [makeCylinder('2026-03-01'), makeCylinder('2026-03-20')],
+      }),
+      makeData({ monthId: '2026-04', monthLabel: 'Abril 2026', gasType: 'cylinder', gasCylinders: [makeCylinder('2026-04-10')] }),
     ];
     const records = getGasCylinderRecords(months);
-    expect(records).toHaveLength(1);
+    expect(records).toHaveLength(3);
+    // Records sorted by installDate: Mar-01, Mar-20, Apr-10
+    expect(records[0]!.durationDays).toBe(19);  // Mar-01 → Mar-20
+    expect(records[1]!.durationDays).toBe(21);  // Mar-20 → Apr-10
+    expect(records[2]!.durationDays).toBeNull();
   });
 
-  it('returns empty array when no cylinder months', () => {
+  it('labels multiple cylinders in same month with suffix', () => {
+    const months: MonthlyBillData[] = [
+      makeData({
+        monthId: '2026-03', monthLabel: 'Março 2026', gasType: 'cylinder',
+        gasCylinders: [makeCylinder('2026-03-01'), makeCylinder('2026-03-20')],
+      }),
+    ];
+    const records = getGasCylinderRecords(months);
+    expect(records[0]!.chartLabel).toBe('Março·1');
+    expect(records[1]!.chartLabel).toBe('Março·2');
+  });
+
+  it('single cylinder per month has no suffix in label', () => {
+    const months: MonthlyBillData[] = [
+      makeData({ monthId: '2026-02', monthLabel: 'Fevereiro 2026', gasType: 'cylinder', gasCylinders: [makeCylinder('2026-02-14')] }),
+    ];
+    const records = getGasCylinderRecords(months);
+    expect(records[0]!.chartLabel).toBe('Fevereiro');
+  });
+
+  it('excludes pipe-gas months', () => {
+    const months: MonthlyBillData[] = [
+      makeData({ monthId: '2026-02', gasType: 'cylinder', gasCylinders: [makeCylinder('2026-02-14')] }),
+      makeData({ monthId: '2026-03', gasType: 'pipe' }),
+    ];
+    expect(getGasCylinderRecords(months)).toHaveLength(1);
+  });
+
+  it('returns empty array when no cylinder months with install dates', () => {
     const months: MonthlyBillData[] = [
       makeData({ monthId: '2026-02', gasType: 'pipe' }),
     ];

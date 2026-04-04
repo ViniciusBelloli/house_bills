@@ -163,6 +163,5 @@
   ],
   "internetFixedCost": 30,
   "gasType": "cylinder",
-  "gasCylinderBuyDate": null,
-  "gasCylinderInstallDate": null
+  "gasCylinders": []
 }

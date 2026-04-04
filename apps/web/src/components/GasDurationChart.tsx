@@ -25,7 +25,7 @@ export function GasDurationChart({ records }: Props) {
   const avg = known.reduce((s, r) => s + r.durationDays!, 0) / known.length;
 
   const data = records.map((r) => ({
-    label: r.monthLabel.split(' ')[0],
+    label: r.chartLabel,
     days: r.durationDays,
     installDate: r.installDate,
     buyDate: r.buyDate,

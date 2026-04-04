@@ -33,7 +33,11 @@ export function MonthPage() {
       <div className="flex items-center gap-3">
         <Link to="/" className="text-sm text-muted-foreground hover:underline">← All months</Link>
         <h1 className="text-2xl font-semibold">{data.monthLabel}</h1>
-        <span className="ml-auto text-xl font-bold">{formatEur(summary.grandTotal)}</span>
+        <Link to={`/month/${data.monthId}/edit`}
+          className="ml-auto text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors">
+          Edit
+        </Link>
+        <span className="text-xl font-bold">{formatEur(summary.grandTotal)}</span>
       </div>
 
       {/* Utility cards */}
@@ -61,12 +65,19 @@ export function MonthPage() {
                   }`}>
                     {(data.gasType ?? 'cylinder') === 'cylinder' ? 'Cylinder' : 'Pipe'}
                   </span>
-                  {data.gasCylinderInstallDate && (
-                    <div className="text-amber-600">Installed: {formatDate(data.gasCylinderInstallDate)}</div>
-                  )}
-                  {data.gasCylinderBuyDate && (
-                    <div className="text-muted-foreground">Bought: {formatDate(data.gasCylinderBuyDate)}</div>
-                  )}
+                  {(data.gasCylinders ?? []).map((c, i) => (
+                    <div key={i} className="space-y-0.5">
+                      {(data.gasCylinders!.length > 1) && (
+                        <div className="font-medium text-amber-700">Cylinder {i + 1}</div>
+                      )}
+                      {c.installDate && (
+                        <div className="text-amber-600">Installed: {formatDate(c.installDate)}</div>
+                      )}
+                      {c.buyDate && (
+                        <div className="text-muted-foreground">Bought: {formatDate(c.buyDate)}</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
               <div className="pt-2 space-y-0.5">

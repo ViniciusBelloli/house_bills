@@ -216,33 +216,70 @@ export function buildMonthlySummary(data: MonthlyBillData): MonthlySummary {
 }
 
 /**
- * Computes gas cylinder duration records across all months (sorted by monthId).
- * Only includes months where gasType is 'cylinder' (or unset, which defaults to cylinder).
- * Duration = installDate(next cylinder) − installDate(current cylinder).
+ * Returns a flat list of all cylinder records across all months, sorted by installDate.
+ * Only includes months with gasType 'cylinder' (default when absent) that have gasCylinders.
+ * Duration = installDate(next record) − installDate(current record).
+ * Months with multiple cylinders produce multiple records; labels become "Março·2", etc.
  */
 export function getGasCylinderRecords(months: MonthlyBillData[]): GasCylinderRecord[] {
-  const sorted = [...months].sort((a, b) => a.monthId.localeCompare(b.monthId));
+  // Flatten all cylinder entries across all cylinder-type months
+  const flat: Array<{
+    monthId: string;
+    monthLabel: string;
+    cylinderIndex: number;
+    buyDate: string | null;
+    installDate: string;
+  }> = [];
 
-  const cylinderMonths = sorted.filter(
-    (m) => (m.gasType ?? 'cylinder') === 'cylinder' && m.gasCylinderInstallDate,
-  );
+  for (const m of months) {
+    if ((m.gasType ?? 'cylinder') !== 'cylinder') continue;
+    const cylinders = m.gasCylinders ?? [];
+    const withDate = cylinders.filter((c) => c.installDate);
+    for (let i = 0; i < withDate.length; i++) {
+      const c = withDate[i]!;
+      flat.push({
+        monthId: m.monthId,
+        monthLabel: m.monthLabel,
+        cylinderIndex: i,
+        buyDate: c.buyDate ?? null,
+        installDate: c.installDate!,
+      });
+    }
+  }
 
-  return cylinderMonths.map((m, i) => {
-    const next = cylinderMonths[i + 1];
+  // Sort globally by installDate so durations are always between consecutive installs
+  flat.sort((a, b) => a.installDate.localeCompare(b.installDate));
+
+  // Count how many cylinders each month has (to decide label suffix)
+  const countPerMonth: Record<string, number> = {};
+  for (const r of flat) countPerMonth[r.monthId] = (countPerMonth[r.monthId] ?? 0) + 1;
+
+  // Track per-month occurrence index for labelling
+  const seenPerMonth: Record<string, number> = {};
+
+  return flat.map((r, i) => {
+    seenPerMonth[r.monthId] = (seenPerMonth[r.monthId] ?? 0) + 1;
+    const occurrence = seenPerMonth[r.monthId]!;
+    const total = countPerMonth[r.monthId]!;
+    const shortLabel = r.monthLabel.split(' ')[0]!;
+    const chartLabel = total > 1 ? `${shortLabel}·${occurrence}` : shortLabel;
+
+    const next = flat[i + 1];
     let durationDays: number | null = null;
-
-    if (next?.gasCylinderInstallDate && m.gasCylinderInstallDate) {
+    if (next) {
       const ms =
-        new Date(next.gasCylinderInstallDate + 'T00:00:00Z').getTime() -
-        new Date(m.gasCylinderInstallDate + 'T00:00:00Z').getTime();
+        new Date(next.installDate + 'T00:00:00Z').getTime() -
+        new Date(r.installDate + 'T00:00:00Z').getTime();
       durationDays = Math.round(ms / (1000 * 60 * 60 * 24));
     }
 
     return {
-      monthId: m.monthId,
-      monthLabel: m.monthLabel,
-      buyDate: m.gasCylinderBuyDate ?? null,
-      installDate: m.gasCylinderInstallDate!,
+      monthId: r.monthId,
+      monthLabel: r.monthLabel,
+      cylinderIndex: r.cylinderIndex,
+      chartLabel,
+      buyDate: r.buyDate,
+      installDate: r.installDate,
       durationDays,
     };
   });

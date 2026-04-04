@@ -205,6 +205,11 @@
   ],
   "internetFixedCost": 17,
   "gasType": "cylinder",
-  "gasCylinderBuyDate": null,
-  "gasCylinderInstallDate": "2026-02-14"
+  "gasCylinders": [
+    {
+      "total": 33.65,
+      "buyDate": null,
+      "installDate": "2026-02-14"
+    }
+  ]
 }
