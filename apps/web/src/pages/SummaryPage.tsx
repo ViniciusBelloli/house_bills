@@ -15,14 +15,22 @@ export function SummaryPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold tracking-tight">House Bills</h1>
-        <Link
-          to="/new"
-          className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-        >
-          + New month
-        </Link>
+        <div className="ml-auto flex items-center gap-2">
+          <Link
+            to="/residents"
+            className="text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors"
+          >
+            Members
+          </Link>
+          <Link
+            to="/new"
+            className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+          >
+            + New month
+          </Link>
+        </div>
       </div>
 
       {summaries.length === 0 ? (

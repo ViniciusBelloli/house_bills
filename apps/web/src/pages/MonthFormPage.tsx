@@ -4,6 +4,7 @@ import { buildMonthlySummary } from '@house-bills/bills-core';
 import type { MonthlyBillData, UtilityBill, ResidentDailyWeights } from '@house-bills/bills-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatEur } from '@/lib/utils';
+import { useDataContext, getActiveResidents } from '@/context/DataContext';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -130,7 +131,9 @@ interface Props {
 
 export function MonthFormPage({ initialData }: Props) {
   const navigate = useNavigate();
+  const { saveMonth, residents: residentConfig } = useDataContext();
   const isEdit = !!initialData;
+  const [saved, setSaved] = useState(false);
 
   const init = initialData ? initFromData(initialData) : null;
 
@@ -141,13 +144,20 @@ export function MonthFormPage({ initialData }: Props) {
   const [internet, setInternet] = useState(init?.internet ?? '');
   const [gasType, setGasType] = useState<'cylinder' | 'pipe'>(init?.gasType ?? 'cylinder');
   const [cylinders, setCylinders] = useState<CylinderEntry[]>(init?.cylinders ?? [emptyCylinder()]);
-  const [residents, setResidents] = useState<ResidentEntry[]>(
-    init?.residents ?? [
+  const [residents, setResidents] = useState<ResidentEntry[]>(() => {
+    if (init?.residents) return init.residents;
+    // Pre-populate from active residents config (for new months)
+    const targetMonth = initialData?.monthId ?? new Date().toISOString().slice(0, 7);
+    const active = getActiveResidents(residentConfig, targetMonth);
+    if (active.length > 0) {
+      return active.map((r) => ({ id: uid(), name: r.name, defaultWeight: '1.0' }));
+    }
+    return [
       { id: uid(), name: 'Vinicius', defaultWeight: '1.2' },
       { id: uid(), name: 'Julia', defaultWeight: '1.2' },
       { id: uid(), name: 'Henrique', defaultWeight: '1.0' },
-    ],
-  );
+    ];
+  });
   const [weights, setWeights] = useState<WeightState>(init?.weights ?? {});
 
   // ── resident management ────────────────────────────────────────────────────
@@ -260,6 +270,13 @@ export function MonthFormPage({ initialData }: Props) {
   const data = buildData();
   const summary = data && data.utilities.length > 0 ? buildMonthlySummary(data) : null;
 
+  const handleSave = () => {
+    if (!data) return;
+    saveMonth(data);
+    setSaved(true);
+    if (isEdit) navigate(`/month/${data.monthId}`);
+  };
+
   const handleDownload = () => {
     if (!data) return;
     const json = JSON.stringify(data, null, 2) + '\n';
@@ -288,18 +305,14 @@ export function MonthFormPage({ initialData }: Props) {
         </h1>
       </div>
 
-      {!isEdit && (
-        <p className="text-sm text-muted-foreground">
-          Fill in details, set daily weights, download the JSON and drop it into{' '}
-          <code className="text-xs bg-muted px-1 py-0.5 rounded">data/months/</code>.
-        </p>
-      )}
-      {isEdit && (
-        <p className="text-sm text-muted-foreground">
-          Edit the month data below. Download the updated JSON and replace the file in{' '}
-          <code className="text-xs bg-muted px-1 py-0.5 rounded">data/months/{initialData!.monthId}.json</code>.
-        </p>
-      )}
+      <p className="text-sm text-muted-foreground">
+        {isEdit
+          ? 'Edit the data below and save. Changes are stored locally in your browser. '
+          : 'Fill in details and save. Changes are stored locally in your browser. '}
+        Download the JSON and commit it to{' '}
+        <code className="text-xs bg-muted px-1 py-0.5 rounded">data/months/</code>{' '}
+        for permanent storage.
+      </p>
 
       {/* ── Month + internet ── */}
       <Card>
@@ -589,15 +602,19 @@ export function MonthFormPage({ initialData }: Props) {
       )}
 
       {/* ── Actions ── */}
-      <div className="flex justify-end gap-3">
+      <div className="flex items-center justify-end gap-3 flex-wrap">
         <button
           onClick={() => navigate(isEdit ? `/month/${initialData!.monthId}` : '/')}
           className="text-sm px-4 py-2 rounded-md border hover:bg-muted transition-colors">
           Cancel
         </button>
         <button onClick={handleDownload} disabled={!data || !monthId}
+          className="text-sm px-4 py-2 rounded-md border hover:bg-muted transition-colors disabled:opacity-40">
+          Download {monthId ? `${monthId}.json` : 'JSON'}
+        </button>
+        <button onClick={handleSave} disabled={!data || !monthId}
           className="text-sm px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40">
-          {isEdit ? `Download updated ${monthId}.json` : `Download ${monthId ? `${monthId}.json` : 'JSON'}`}
+          {saved ? '✓ Saved' : 'Save'}
         </button>
       </div>
     </div>
