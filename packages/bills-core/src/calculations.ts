@@ -1,4 +1,5 @@
 import type {
+  GasCylinderRecord,
   MonthlyBillData,
   MonthlySummary,
   ResidentMonthlyTotal,
@@ -179,4 +180,32 @@ export function buildMonthlySummary(data: MonthlyBillData): MonthlySummary {
     utilitySummaries,
     residentTotals,
   };
+}
+
+/**
+ * Computes gas cylinder durations across all months (sorted by monthId).
+ * Duration = gasCylinderDate(next month) − gasCylinderDate(current month).
+ */
+export function getGasCylinderRecords(months: MonthlyBillData[]): GasCylinderRecord[] {
+  const sorted = [...months].sort((a, b) => a.monthId.localeCompare(b.monthId));
+  const withDate = sorted.filter((m) => m.gasCylinderDate);
+
+  return withDate.map((m, i) => {
+    const next = withDate[i + 1];
+    let durationDays: number | null = null;
+
+    if (next?.gasCylinderDate && m.gasCylinderDate) {
+      const ms =
+        new Date(next.gasCylinderDate + 'T00:00:00Z').getTime() -
+        new Date(m.gasCylinderDate + 'T00:00:00Z').getTime();
+      durationDays = Math.round(ms / (1000 * 60 * 60 * 24));
+    }
+
+    return {
+      monthId: m.monthId,
+      monthLabel: m.monthLabel,
+      openedDate: m.gasCylinderDate!,
+      durationDays,
+    };
+  });
 }

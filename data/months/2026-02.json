@@ -203,5 +203,6 @@
       }
     }
   ],
-  "internetFixedCost": 17
+  "internetFixedCost": 17,
+  "gasCylinderDate": "2026-02-14"
 }

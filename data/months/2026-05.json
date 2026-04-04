@@ -161,5 +161,6 @@
       }
     }
   ],
-  "internetFixedCost": 30
+  "internetFixedCost": 30,
+  "gasCylinderDate": null
 }

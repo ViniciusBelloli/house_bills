@@ -27,8 +27,18 @@ export const MonthlyBillDataSchema = z.object({
   utilities: z.array(UtilityBillSchema),
   residents: z.array(ResidentDailyWeightsSchema),
   internetFixedCost: z.number().nullable().optional(),
+  // Date when the gas cylinder noted in this month's sheet was installed.
+  // Duration of that cylinder = gasCylinderDate(next month) - gasCylinderDate(this month).
+  gasCylinderDate: z.string().nullable().optional(), // ISO date YYYY-MM-DD
 });
 export type MonthlyBillData = z.infer<typeof MonthlyBillDataSchema>;
+
+export interface GasCylinderRecord {
+  monthId: string;
+  monthLabel: string;
+  openedDate: string;       // ISO date when cylinder was installed
+  durationDays: number | null; // null when next cylinder date is unknown
+}
 
 // --- Derived types ---
 

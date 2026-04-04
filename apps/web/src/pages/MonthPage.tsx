@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { buildMonthlySummary } from '@house-bills/bills-core';
 import { useMonthlyData } from '@/hooks/useMonthlyData';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AttendanceGrid } from '@/components/AttendanceGrid';
 import { formatEur, formatDate } from '@/lib/utils';
 
 const UTILITY_LABELS: Record<string, string> = {
@@ -13,14 +15,13 @@ const UTILITY_LABELS: Record<string, string> = {
 export function MonthPage() {
   const { monthId } = useParams<{ monthId: string }>();
   const data = useMonthlyData(monthId ?? '');
+  const [openAttendance, setOpenAttendance] = useState<string | null>(null);
 
   if (!data) {
     return (
       <div className="p-8 text-center text-muted-foreground">
         Month not found.{' '}
-        <Link to="/" className="underline">
-          Back to summary
-        </Link>
+        <Link to="/" className="underline">Back to summary</Link>
       </div>
     );
   }
@@ -30,9 +31,7 @@ export function MonthPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
-        <Link to="/" className="text-sm text-muted-foreground hover:underline">
-          ← All months
-        </Link>
+        <Link to="/" className="text-sm text-muted-foreground hover:underline">← All months</Link>
         <h1 className="text-2xl font-semibold">{data.monthLabel}</h1>
         <span className="ml-auto text-xl font-bold">{formatEur(summary.grandTotal)}</span>
       </div>
@@ -48,11 +47,16 @@ export function MonthPage() {
               <p className="text-xl font-bold">{formatEur(utility.total)}</p>
             </CardHeader>
             <CardContent className="text-xs space-y-1">
-              <div>
-                {formatDate(utility.periodStart)} → {formatDate(utility.periodEnd)}
-              </div>
+              <div>{formatDate(utility.periodStart)} → {formatDate(utility.periodEnd)}</div>
               <div>{totalParts.toFixed(2)} partes · {formatEur(euroPerPart)}/parte</div>
-              {utility.notes && <div className="text-muted-foreground italic">{utility.notes}</div>}
+              {utility.notes && (
+                <div className="text-muted-foreground italic">{utility.notes}</div>
+              )}
+              {utility.type === 'gas' && data.gasCylinderDate && (
+                <div className="text-amber-600 font-medium">
+                  New cylinder: {formatDate(data.gasCylinderDate)}
+                </div>
+              )}
               <div className="pt-2 space-y-0.5">
                 {residentShares.map((rs) => (
                   <div key={rs.resident} className="flex justify-between">
@@ -102,6 +106,37 @@ export function MonthPage() {
           </table>
         </CardContent>
       </Card>
+
+      {/* Attendance grids per utility */}
+      <div className="space-y-3">
+        <h2 className="text-base font-semibold">Days at home</h2>
+        {data.utilities.map((utility) => {
+          const isOpen = openAttendance === utility.type;
+          return (
+            <Card key={utility.type}>
+              <CardHeader
+                className="pb-2 cursor-pointer select-none"
+                onClick={() => setOpenAttendance(isOpen ? null : utility.type)}
+              >
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">
+                    {UTILITY_LABELS[utility.type]} &mdash;{' '}
+                    <span className="font-normal text-muted-foreground">
+                      {formatDate(utility.periodStart)} → {formatDate(utility.periodEnd)}
+                    </span>
+                  </CardTitle>
+                  <span className="text-muted-foreground text-xs">{isOpen ? '▲' : '▼'}</span>
+                </div>
+              </CardHeader>
+              {isOpen && (
+                <CardContent>
+                  <AttendanceGrid utility={utility} residents={data.residents} />
+                </CardContent>
+              )}
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

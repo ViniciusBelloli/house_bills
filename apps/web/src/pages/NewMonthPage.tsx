@@ -25,18 +25,25 @@ const MONTH_LABELS: Record<string, string> = {
   '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro',
 };
 
-function monthLabel(monthId: string): string {
+function buildMonthLabel(monthId: string): string {
   const [y, m] = monthId.split('-') as [string, string];
   return `${MONTH_LABELS[m] ?? m} ${y}`;
 }
 
 // --- types for form state ---
 
+interface ResidentEntry {
+  id: string;        // stable key for React
+  name: string;
+  defaultWeight: string; // '1.0' or '1.2'
+}
+
 interface UtilityForm {
   total: string;
   periodStart: string;
   periodEnd: string;
   notes: string;
+  gasCylinderDate: string; // only used for gas
 }
 
 type UtilityKey = 'electricity' | 'gas' | 'water';
@@ -48,8 +55,17 @@ const UTILITY_LABELS: Record<UtilityKey, string> = {
 };
 
 function emptyUtility(): UtilityForm {
-  return { total: '', periodStart: '', periodEnd: '', notes: '' };
+  return { total: '', periodStart: '', periodEnd: '', notes: '', gasCylinderDate: '' };
 }
+
+let _id = 0;
+function nextId() { return String(++_id); }
+
+const DEFAULT_RESIDENTS: ResidentEntry[] = [
+  { id: nextId(), name: 'Vinicius', defaultWeight: '1.2' },
+  { id: nextId(), name: 'Julia',    defaultWeight: '1.2' },
+  { id: nextId(), name: 'Henrique', defaultWeight: '1.0' },
+];
 
 // --- component ---
 
@@ -61,14 +77,32 @@ export function NewMonthPage() {
     water: emptyUtility(),
   });
   const [internet, setInternet] = useState('');
-  const [residentNames, setResidentNames] = useState('Vinicius, Julia, Henrique');
-  // weights: residentName -> utilityKey -> date -> weight string
+  const [residents, setResidents] = useState<ResidentEntry[]>(DEFAULT_RESIDENTS);
+
+  // weights: residentId -> utilityKey -> date -> weight string
   const [weights, setWeights] = useState<Record<string, Record<UtilityKey, Record<string, string>>>>({});
 
-  const residents = residentNames
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // --- resident management ---
+  const addResident = () =>
+    setResidents((prev) => [...prev, { id: nextId(), name: '', defaultWeight: '1.0' }]);
+
+  const removeResident = (id: string) =>
+    setResidents((prev) => prev.filter((r) => r.id !== id));
+
+  const updateResident = (id: string, field: keyof ResidentEntry, value: string) =>
+    setResidents((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+
+  // When a resident's defaultWeight changes, reset all unset cells to that weight
+  const applyDefaultWeight = (id: string, utilKey: UtilityKey, dates: string[], weight: string) => {
+    setWeights((prev) => {
+      const existing = prev[id]?.[utilKey] ?? {};
+      const updated = { ...existing };
+      for (const d of dates) {
+        if (!(d in updated)) updated[d] = weight;
+      }
+      return { ...prev, [id]: { ...(prev[id] ?? {}), [utilKey]: updated } };
+    });
+  };
 
   const setUtilityField = useCallback(
     (key: UtilityKey, field: keyof UtilityForm, value: string) => {
@@ -77,15 +111,36 @@ export function NewMonthPage() {
     [],
   );
 
-  const setWeight = (resident: string, utilKey: UtilityKey, date: string, value: string) => {
+  const setWeight = (residentId: string, utilKey: UtilityKey, date: string, value: string) => {
     setWeights((prev) => ({
       ...prev,
-      [resident]: {
-        ...prev[resident],
+      [residentId]: {
+        ...(prev[residentId] ?? {}),
         [utilKey]: {
-          ...(prev[resident]?.[utilKey] ?? {}),
+          ...(prev[residentId]?.[utilKey] ?? {}),
           [date]: value,
         },
+      },
+    }));
+  };
+
+  // Fill all empty cells for a resident+utility with their default weight
+  const fillAll = (residentId: string, utilKey: UtilityKey, dates: string[], weight: string) => {
+    setWeights((prev) => ({
+      ...prev,
+      [residentId]: {
+        ...(prev[residentId] ?? {}),
+        [utilKey]: Object.fromEntries(dates.map((d) => [d, weight])),
+      },
+    }));
+  };
+
+  const clearAll = (residentId: string, utilKey: UtilityKey, dates: string[]) => {
+    setWeights((prev) => ({
+      ...prev,
+      [residentId]: {
+        ...(prev[residentId] ?? {}),
+        [utilKey]: Object.fromEntries(dates.map((d) => [d, ''])),
       },
     }));
   };
@@ -93,6 +148,8 @@ export function NewMonthPage() {
   // Build MonthlyBillData from form state
   const buildData = (): MonthlyBillData | null => {
     if (!monthId) return null;
+
+    const activeResidents = residents.filter((r) => r.name.trim());
 
     const utilityBills: UtilityBill[] = (
       Object.entries(utilities) as [UtilityKey, UtilityForm][]
@@ -107,26 +164,28 @@ export function NewMonthPage() {
         notes: u.notes || null,
       }));
 
-    const residentData: ResidentDailyWeights[] = residents.map((name) => {
+    const residentData: ResidentDailyWeights[] = activeResidents.map((r) => {
       const days: Record<string, number | null> = {};
       for (const [utilKey, u] of Object.entries(utilities) as [UtilityKey, UtilityForm][]) {
         if (!u.periodStart || !u.periodEnd) continue;
         for (const date of getRange(u.periodStart, u.periodEnd)) {
-          const raw = weights[name]?.[utilKey]?.[date];
-          if (!(date in days)) {
-            days[date] = raw ? parseFloat(raw) || null : null;
-          }
+          if (date in days) continue;
+          const raw = weights[r.id]?.[utilKey]?.[date];
+          days[date] = raw ? parseFloat(raw) || null : null;
         }
       }
-      return { resident: name, days };
+      return { resident: r.name.trim(), days };
     });
+
+    const gasCylinderDate = utilities.gas.gasCylinderDate || null;
 
     return {
       monthId,
-      monthLabel: monthLabel(monthId),
+      monthLabel: buildMonthLabel(monthId),
       utilities: utilityBills,
       residents: residentData,
       internetFixedCost: internet ? parseFloat(internet) || null : null,
+      gasCylinderDate,
     };
   };
 
@@ -157,42 +216,79 @@ export function NewMonthPage() {
         <code className="text-xs bg-muted px-1 py-0.5 rounded">data/months/</code> in the repo.
       </p>
 
-      {/* Month + residents */}
+      {/* Month */}
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-sm">Month</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <label className="space-y-1">
-              <span className="text-xs text-muted-foreground">Month (YYYY-MM)</span>
-              <input
-                type="month"
-                className="w-full border rounded-md px-3 py-1.5 text-sm"
-                value={monthId}
-                onChange={(e) => setMonthId(e.target.value)}
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="text-xs text-muted-foreground">Residents (comma-separated)</span>
-              <input
-                type="text"
-                className="w-full border rounded-md px-3 py-1.5 text-sm"
-                value={residentNames}
-                onChange={(e) => setResidentNames(e.target.value)}
-                placeholder="Vinicius, Julia, Henrique"
-              />
-            </label>
-          </div>
-          <label className="space-y-1 block">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <label className="space-y-1">
+            <span className="text-xs text-muted-foreground">Month (YYYY-MM)</span>
+            <input
+              type="month"
+              className="w-full border rounded-md px-3 py-1.5 text-sm"
+              value={monthId}
+              onChange={(e) => setMonthId(e.target.value)}
+            />
+          </label>
+          <label className="space-y-1">
             <span className="text-xs text-muted-foreground">Internet / MEO fixed cost (€)</span>
             <input
-              type="number"
-              step="0.01"
-              className="w-40 border rounded-md px-3 py-1.5 text-sm"
+              type="number" step="0.01"
+              className="w-full border rounded-md px-3 py-1.5 text-sm"
               value={internet}
               onChange={(e) => setInternet(e.target.value)}
               placeholder="0.00"
             />
           </label>
+        </CardContent>
+      </Card>
+
+      {/* Residents */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">Residents</CardTitle>
+            <button
+              onClick={addResident}
+              className="text-xs px-2 py-1 rounded border hover:bg-muted transition-colors"
+            >
+              + Add resident
+            </button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {residents.map((r) => (
+              <div key={r.id} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Name"
+                  className="flex-1 border rounded-md px-3 py-1.5 text-sm"
+                  value={r.name}
+                  onChange={(e) => updateResident(r.id, 'name', e.target.value)}
+                />
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground">Default weight</span>
+                  <select
+                    className="border rounded-md px-2 py-1.5 text-sm"
+                    value={r.defaultWeight}
+                    onChange={(e) => updateResident(r.id, 'defaultWeight', e.target.value)}
+                  >
+                    <option value="1.0">1.0</option>
+                    <option value="1.2">1.2</option>
+                    <option value="0.8">0.8</option>
+                    <option value="0.5">0.5</option>
+                  </select>
+                </div>
+                <button
+                  onClick={() => removeResident(r.id)}
+                  className="text-muted-foreground hover:text-destructive transition-colors px-1"
+                  title="Remove resident"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
@@ -209,8 +305,7 @@ export function NewMonthPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <label className="space-y-1">
                   <span className="text-xs text-muted-foreground">Total (€)</span>
-                  <input
-                    type="number" step="0.01"
+                  <input type="number" step="0.01"
                     className="w-full border rounded-md px-3 py-1.5 text-sm"
                     value={u.total}
                     onChange={(e) => setUtilityField(utilKey, 'total', e.target.value)}
@@ -218,8 +313,7 @@ export function NewMonthPage() {
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs text-muted-foreground">Period start</span>
-                  <input
-                    type="date"
+                  <input type="date"
                     className="w-full border rounded-md px-3 py-1.5 text-sm"
                     value={u.periodStart}
                     onChange={(e) => setUtilityField(utilKey, 'periodStart', e.target.value)}
@@ -227,8 +321,7 @@ export function NewMonthPage() {
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs text-muted-foreground">Period end</span>
-                  <input
-                    type="date"
+                  <input type="date"
                     className="w-full border rounded-md px-3 py-1.5 text-sm"
                     value={u.periodEnd}
                     onChange={(e) => setUtilityField(utilKey, 'periodEnd', e.target.value)}
@@ -236,8 +329,7 @@ export function NewMonthPage() {
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs text-muted-foreground">Notes</span>
-                  <input
-                    type="text"
+                  <input type="text"
                     className="w-full border rounded-md px-3 py-1.5 text-sm"
                     value={u.notes}
                     onChange={(e) => setUtilityField(utilKey, 'notes', e.target.value)}
@@ -246,33 +338,59 @@ export function NewMonthPage() {
                 </label>
               </div>
 
+              {/* Gas: cylinder date */}
+              {utilKey === 'gas' && (
+                <label className="space-y-1 block">
+                  <span className="text-xs text-muted-foreground">New cylinder date (when new gas bottle was opened)</span>
+                  <input type="date"
+                    className="w-48 border rounded-md px-3 py-1.5 text-sm"
+                    value={u.gasCylinderDate}
+                    onChange={(e) => setUtilityField(utilKey, 'gasCylinderDate', e.target.value)}
+                  />
+                </label>
+              )}
+
               {/* Daily weights grid */}
-              {dates.length > 0 && residents.length > 0 && (
+              {dates.length > 0 && residents.filter((r) => r.name.trim()).length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="text-xs border-collapse">
                     <thead>
                       <tr>
-                        <th className="text-left pr-3 py-1 font-medium text-muted-foreground w-24">Resident</th>
+                        <th className="text-left pr-2 py-1 font-medium text-muted-foreground w-24">Resident</th>
+                        <th className="pr-2 py-1 font-normal text-muted-foreground text-left">Actions</th>
                         {dates.map((d) => (
-                          <th key={d} className="px-1 py-1 font-normal text-muted-foreground" style={{ minWidth: 40 }}>
-                            {d.slice(5)} {/* MM-DD */}
+                          <th key={d} className="px-0.5 py-1 font-normal text-muted-foreground" style={{ minWidth: 38 }}>
+                            {d.slice(5)}
                           </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {residents.map((name) => (
-                        <tr key={name}>
-                          <td className="pr-3 py-0.5 font-medium">{name}</td>
+                      {residents.filter((r) => r.name.trim()).map((r) => (
+                        <tr key={r.id}>
+                          <td className="pr-2 py-0.5 font-medium">{r.name}</td>
+                          <td className="pr-2 py-0.5">
+                            <div className="flex gap-1">
+                              <button
+                                className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-blue-50 text-blue-600 border-blue-200"
+                                onClick={() => fillAll(r.id, utilKey, dates, r.defaultWeight)}
+                                title="Fill all days with default weight"
+                              >all</button>
+                              <button
+                                className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-gray-50 text-muted-foreground"
+                                onClick={() => clearAll(r.id, utilKey, dates)}
+                                title="Clear all (absent)"
+                              >none</button>
+                            </div>
+                          </td>
                           {dates.map((date) => (
                             <td key={date} className="px-0.5 py-0.5">
                               <input
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                className="w-10 border rounded px-1 py-0.5 text-center text-xs"
-                                value={weights[name]?.[utilKey]?.[date] ?? ''}
-                                onChange={(e) => setWeight(name, utilKey, date, e.target.value)}
+                                type="number" step="0.1" min="0"
+                                className="w-9 border rounded px-0.5 py-0.5 text-center text-xs"
+                                value={weights[r.id]?.[utilKey]?.[date] ?? ''}
+                                onChange={(e) => setWeight(r.id, utilKey, date, e.target.value)}
+                                onFocus={() => applyDefaultWeight(r.id, utilKey, dates, r.defaultWeight)}
                                 placeholder="–"
                               />
                             </td>
@@ -282,10 +400,6 @@ export function NewMonthPage() {
                     </tbody>
                   </table>
                 </div>
-              )}
-
-              {dates.length === 0 && u.periodStart && u.periodEnd && (
-                <p className="text-xs text-destructive">Invalid date range.</p>
               )}
             </CardContent>
           </Card>

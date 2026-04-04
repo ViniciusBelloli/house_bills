@@ -1,15 +1,17 @@
 import { Link } from 'react-router-dom';
-import { buildMonthlySummary } from '@house-bills/bills-core';
+import { buildMonthlySummary, getGasCylinderRecords } from '@house-bills/bills-core';
 import { useAllMonthlyData } from '@/hooks/useMonthlyData';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UtilityTrendChart } from '@/components/UtilityTrendChart';
 import { ResidentTrendChart } from '@/components/ResidentTrendChart';
 import { AvgPerPersonChart } from '@/components/AvgPerPersonChart';
+import { GasDurationChart } from '@/components/GasDurationChart';
 import { formatEur } from '@/lib/utils';
 
 export function SummaryPage() {
   const months = useAllMonthlyData();
   const summaries = months.map(buildMonthlySummary);
+  const cylinderRecords = getGasCylinderRecords(months);
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
@@ -93,6 +95,17 @@ export function SummaryPage() {
                 <ResidentTrendChart summaries={summaries} />
               </CardContent>
             </Card>
+
+            {cylinderRecords.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Gas cylinder duration (days)</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <GasDurationChart records={cylinderRecords} />
+                </CardContent>
+              </Card>
+            )}
           </div>
         </>
       )}
