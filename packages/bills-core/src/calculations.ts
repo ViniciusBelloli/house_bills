@@ -79,7 +79,7 @@ export function getUtilityEuroPerPart(
 }
 
 /**
- * A resident's share of a single utility bill in euros.
+ * A resident's share of a single utility bill in euros (weighted daily split).
  */
 export function getResidentUtilityShare(
   resident: string,
@@ -92,7 +92,7 @@ export function getResidentUtilityShare(
 }
 
 /**
- * Full derived summary for a single utility, including per-resident shares.
+ * Full derived summary for a utility using weighted daily split (electricity, water, pipe-gas).
  */
 export function buildUtilitySummary(
   utility: UtilityBill,
@@ -112,7 +112,34 @@ export function buildUtilitySummary(
       };
     });
 
-  return { utility, totalParts, euroPerPart, residentShares };
+  return { utility, totalParts, euroPerPart, residentShares, isCylinderSplit: false };
+}
+
+/**
+ * Full derived summary for a cylinder-gas bill: equal split among all active residents.
+ * weightedParts is set to 1 for every resident (each counts equally).
+ */
+export function buildCylinderGasSummary(
+  utility: UtilityBill,
+  residents: MonthlyBillData['residents'],
+): UtilitySummary {
+  const active = residents.filter((r) => r.resident !== 'null');
+  const count = active.length;
+  const share = count > 0 ? utility.total / count : 0;
+
+  const residentShares: UtilityResidentShare[] = active.map((r) => ({
+    resident: r.resident,
+    weightedParts: 1,
+    share,
+  }));
+
+  return {
+    utility,
+    totalParts: count,
+    euroPerPart: share, // = share per person, since each has weight 1
+    residentShares,
+    isCylinderSplit: true,
+  };
 }
 
 /**
@@ -146,11 +173,17 @@ export function getMonthlyResidentTotal(
 
 /**
  * Full derived monthly summary including all utilities and per-person totals.
+ * Automatically selects cylinder vs weighted split for gas based on gasType.
  */
 export function buildMonthlySummary(data: MonthlyBillData): MonthlySummary {
-  const utilitySummaries = data.utilities.map((u) =>
-    buildUtilitySummary(u, data.residents),
-  );
+  const isCylinder = (data.gasType ?? 'cylinder') === 'cylinder';
+
+  const utilitySummaries = data.utilities.map((u) => {
+    if (u.type === 'gas' && isCylinder) {
+      return buildCylinderGasSummary(u, data.residents);
+    }
+    return buildUtilitySummary(u, data.residents);
+  });
 
   const activeResidents = data.residents
     .filter((r) => r.resident !== 'null')
@@ -183,28 +216,33 @@ export function buildMonthlySummary(data: MonthlyBillData): MonthlySummary {
 }
 
 /**
- * Computes gas cylinder durations across all months (sorted by monthId).
- * Duration = gasCylinderDate(next month) − gasCylinderDate(current month).
+ * Computes gas cylinder duration records across all months (sorted by monthId).
+ * Only includes months where gasType is 'cylinder' (or unset, which defaults to cylinder).
+ * Duration = installDate(next cylinder) − installDate(current cylinder).
  */
 export function getGasCylinderRecords(months: MonthlyBillData[]): GasCylinderRecord[] {
   const sorted = [...months].sort((a, b) => a.monthId.localeCompare(b.monthId));
-  const withDate = sorted.filter((m) => m.gasCylinderDate);
 
-  return withDate.map((m, i) => {
-    const next = withDate[i + 1];
+  const cylinderMonths = sorted.filter(
+    (m) => (m.gasType ?? 'cylinder') === 'cylinder' && m.gasCylinderInstallDate,
+  );
+
+  return cylinderMonths.map((m, i) => {
+    const next = cylinderMonths[i + 1];
     let durationDays: number | null = null;
 
-    if (next?.gasCylinderDate && m.gasCylinderDate) {
+    if (next?.gasCylinderInstallDate && m.gasCylinderInstallDate) {
       const ms =
-        new Date(next.gasCylinderDate + 'T00:00:00Z').getTime() -
-        new Date(m.gasCylinderDate + 'T00:00:00Z').getTime();
+        new Date(next.gasCylinderInstallDate + 'T00:00:00Z').getTime() -
+        new Date(m.gasCylinderInstallDate + 'T00:00:00Z').getTime();
       durationDays = Math.round(ms / (1000 * 60 * 60 * 24));
     }
 
     return {
       monthId: m.monthId,
       monthLabel: m.monthLabel,
-      openedDate: m.gasCylinderDate!,
+      buyDate: m.gasCylinderBuyDate ?? null,
+      installDate: m.gasCylinderInstallDate!,
       durationDays,
     };
   });

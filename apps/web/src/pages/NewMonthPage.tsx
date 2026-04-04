@@ -43,7 +43,9 @@ interface UtilityForm {
   periodStart: string;
   periodEnd: string;
   notes: string;
-  gasCylinderDate: string; // only used for gas
+  // gas-only
+  gasCylinderBuyDate: string;
+  gasCylinderInstallDate: string;
 }
 
 type UtilityKey = 'electricity' | 'gas' | 'water';
@@ -55,7 +57,7 @@ const UTILITY_LABELS: Record<UtilityKey, string> = {
 };
 
 function emptyUtility(): UtilityForm {
-  return { total: '', periodStart: '', periodEnd: '', notes: '', gasCylinderDate: '' };
+  return { total: '', periodStart: '', periodEnd: '', notes: '', gasCylinderBuyDate: '', gasCylinderInstallDate: '' };
 }
 
 let _id = 0;
@@ -77,6 +79,7 @@ export function NewMonthPage() {
     water: emptyUtility(),
   });
   const [internet, setInternet] = useState('');
+  const [gasType, setGasType] = useState<'cylinder' | 'pipe'>('cylinder');
   const [residents, setResidents] = useState<ResidentEntry[]>(DEFAULT_RESIDENTS);
 
   // weights: residentId -> utilityKey -> date -> weight string
@@ -177,15 +180,15 @@ export function NewMonthPage() {
       return { resident: r.name.trim(), days };
     });
 
-    const gasCylinderDate = utilities.gas.gasCylinderDate || null;
-
     return {
       monthId,
       monthLabel: buildMonthLabel(monthId),
       utilities: utilityBills,
       residents: residentData,
       internetFixedCost: internet ? parseFloat(internet) || null : null,
-      gasCylinderDate,
+      gasType,
+      gasCylinderBuyDate: gasType === 'cylinder' ? (utilities.gas.gasCylinderBuyDate || null) : null,
+      gasCylinderInstallDate: gasType === 'cylinder' ? (utilities.gas.gasCylinderInstallDate || null) : null,
     };
   };
 
@@ -338,20 +341,51 @@ export function NewMonthPage() {
                 </label>
               </div>
 
-              {/* Gas: cylinder date */}
+              {/* Gas type selector + cylinder-specific fields */}
               {utilKey === 'gas' && (
-                <label className="space-y-1 block">
-                  <span className="text-xs text-muted-foreground">New cylinder date (when new gas bottle was opened)</span>
-                  <input type="date"
-                    className="w-48 border rounded-md px-3 py-1.5 text-sm"
-                    value={u.gasCylinderDate}
-                    onChange={(e) => setUtilityField(utilKey, 'gasCylinderDate', e.target.value)}
-                  />
-                </label>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground font-medium">Gas type</span>
+                    <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" name="gasType" value="cylinder"
+                        checked={gasType === 'cylinder'}
+                        onChange={() => setGasType('cylinder')}
+                      />
+                      Cylinder (botija) — equal split
+                    </label>
+                    <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="radio" name="gasType" value="pipe"
+                        checked={gasType === 'pipe'}
+                        onChange={() => setGasType('pipe')}
+                      />
+                      Pipe (canalizado) — weighted daily split
+                    </label>
+                  </div>
+                  {gasType === 'cylinder' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="space-y-1">
+                        <span className="text-xs text-muted-foreground">Buy date (when purchased)</span>
+                        <input type="date"
+                          className="w-full border rounded-md px-3 py-1.5 text-sm"
+                          value={u.gasCylinderBuyDate}
+                          onChange={(e) => setUtilityField('gas', 'gasCylinderBuyDate', e.target.value)}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-xs text-muted-foreground">Install date (when connected at home)</span>
+                        <input type="date"
+                          className="w-full border rounded-md px-3 py-1.5 text-sm"
+                          value={u.gasCylinderInstallDate}
+                          onChange={(e) => setUtilityField('gas', 'gasCylinderInstallDate', e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
               )}
 
-              {/* Daily weights grid */}
-              {dates.length > 0 && residents.filter((r) => r.name.trim()).length > 0 && (
+              {/* Daily weights grid — hidden for cylinder gas (equal split, no daily tracking needed) */}
+              {!(utilKey === 'gas' && gasType === 'cylinder') && dates.length > 0 && residents.filter((r) => r.name.trim()).length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="text-xs border-collapse">
                     <thead>

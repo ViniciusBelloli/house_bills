@@ -150,5 +150,7 @@
     }
   ],
   "internetFixedCost": 30,
-  "gasCylinderDate": "2026-03-06"
+  "gasType": "cylinder",
+  "gasCylinderBuyDate": null,
+  "gasCylinderInstallDate": "2026-03-06"
 }

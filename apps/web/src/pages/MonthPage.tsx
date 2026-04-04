@@ -52,9 +52,21 @@ export function MonthPage() {
               {utility.notes && (
                 <div className="text-muted-foreground italic">{utility.notes}</div>
               )}
-              {utility.type === 'gas' && data.gasCylinderDate && (
-                <div className="text-amber-600 font-medium">
-                  New cylinder: {formatDate(data.gasCylinderDate)}
+              {utility.type === 'gas' && (
+                <div className="pt-1 space-y-0.5">
+                  <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    (data.gasType ?? 'cylinder') === 'cylinder'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {(data.gasType ?? 'cylinder') === 'cylinder' ? 'Cylinder' : 'Pipe'}
+                  </span>
+                  {data.gasCylinderInstallDate && (
+                    <div className="text-amber-600">Installed: {formatDate(data.gasCylinderInstallDate)}</div>
+                  )}
+                  {data.gasCylinderBuyDate && (
+                    <div className="text-muted-foreground">Bought: {formatDate(data.gasCylinderBuyDate)}</div>
+                  )}
                 </div>
               )}
               <div className="pt-2 space-y-0.5">
@@ -107,10 +119,10 @@ export function MonthPage() {
         </CardContent>
       </Card>
 
-      {/* Attendance grids per utility */}
+      {/* Attendance grids per utility — cylinder gas is an equal split so no grid needed */}
       <div className="space-y-3">
         <h2 className="text-base font-semibold">Days at home</h2>
-        {data.utilities.map((utility) => {
+        {data.utilities.filter((u) => !(u.type === 'gas' && (data.gasType ?? 'cylinder') === 'cylinder')).map((utility) => {
           const isOpen = openAttendance === utility.type;
           return (
             <Card key={utility.type}>

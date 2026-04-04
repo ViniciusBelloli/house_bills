@@ -56,9 +56,9 @@ function parseMonthSheet(
   monthLabel: string,
   internetFixedCost: number | null,
 ): MonthlyBillData {
-  // Col 15 of the gas summary row (row index 1) holds the date the new cylinder was opened.
+  // Col 15 of the gas summary row (row index 1) holds the date the new cylinder was installed.
   const gasCylinderRaw = cellValue(ws, 1, 15);
-  const gasCylinderDate = toIsoDate(gasCylinderRaw);
+  const gasCylinderInstallDate = toIsoDate(gasCylinderRaw);
   // Parse the top summary rows (rows 0,1,2) to get totals and dates
   // Col layout: [0]=empty,[1]=empty,[2]=label,[3]=empty,[4]=total,[5]='PARTES',[6]=partes,[7]='EURO/PARTE',[8]=euroPerParte
   //             [10]='Datas',[11]=periodStart,[12]=periodEnd,[13]=label,[14]=notes?,[15]=nextGasDate?
@@ -138,7 +138,18 @@ function parseMonthSheet(
     notes,
   }));
 
-  return { monthId, monthLabel, utilities, residents, internetFixedCost, gasCylinderDate };
+  // Spreadsheet months are all cylinder-type gas (they track individual cylinder purchases).
+  // buyDate is not recorded in the spreadsheet, so we leave it null.
+  return {
+    monthId,
+    monthLabel,
+    utilities,
+    residents,
+    internetFixedCost,
+    gasType: 'cylinder' as const,
+    gasCylinderBuyDate: null,
+    gasCylinderInstallDate,
+  };
 }
 
 function parseResumoSheet(ws: XLSX.WorkSheet): Array<{

@@ -4,6 +4,8 @@ export type ResidentName = string;
 
 export type UtilityType = 'electricity' | 'gas' | 'water';
 
+export type GasType = 'cylinder' | 'pipe';
+
 export const UtilityBillSchema = z.object({
   type: z.enum(['electricity', 'gas', 'water']),
   label: z.string(),
@@ -27,18 +29,21 @@ export const MonthlyBillDataSchema = z.object({
   utilities: z.array(UtilityBillSchema),
   residents: z.array(ResidentDailyWeightsSchema),
   internetFixedCost: z.number().nullable().optional(),
-  // Date when the gas cylinder noted in this month's sheet was installed.
-  // Duration of that cylinder = gasCylinderDate(next month) - gasCylinderDate(this month).
-  gasCylinderDate: z.string().nullable().optional(), // ISO date YYYY-MM-DD
+
+  // Gas billing method for this month.
+  // 'cylinder' → equal split among all residents, track cylinder dates.
+  // 'pipe'     → weighted daily split (same logic as electricity/water).
+  // Defaults to 'cylinder' when absent (backward-compatible with imported data).
+  gasType: z.enum(['cylinder', 'pipe']).optional(),
+
+  // Cylinder-only fields.
+  // buyDate     = when the cylinder was purchased at the shop.
+  // installDate = when it was connected/opened at home.
+  // Duration of a cylinder = installDate(next) - installDate(current).
+  gasCylinderBuyDate: z.string().nullable().optional(),     // ISO date
+  gasCylinderInstallDate: z.string().nullable().optional(), // ISO date
 });
 export type MonthlyBillData = z.infer<typeof MonthlyBillDataSchema>;
-
-export interface GasCylinderRecord {
-  monthId: string;
-  monthLabel: string;
-  openedDate: string;       // ISO date when cylinder was installed
-  durationDays: number | null; // null when next cylinder date is unknown
-}
 
 // --- Derived types ---
 
@@ -53,6 +58,8 @@ export interface UtilitySummary {
   totalParts: number;
   euroPerPart: number;
   residentShares: UtilityResidentShare[];
+  /** true when this is a cylinder-gas equal split (weightedParts = 1 for everyone) */
+  isCylinderSplit: boolean;
 }
 
 export interface ResidentMonthlyTotal {
@@ -74,4 +81,12 @@ export interface MonthlySummary {
   grandTotal: number;
   utilitySummaries: UtilitySummary[];
   residentTotals: ResidentMonthlyTotal[];
+}
+
+export interface GasCylinderRecord {
+  monthId: string;
+  monthLabel: string;
+  buyDate: string | null;
+  installDate: string;          // ISO date — used as the anchor for duration
+  durationDays: number | null;  // null = next cylinder not yet recorded
 }
