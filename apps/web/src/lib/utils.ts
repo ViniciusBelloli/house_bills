@@ -1,5 +1,7 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { format, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -14,8 +16,17 @@ export function formatEur(value: number): string {
   }).format(value);
 }
 
+/** Formats an ISO date string (YYYY-MM-DD) as "2 jan. 2026". */
 export function formatDate(isoDate: string): string {
-  const [year, month, day] = isoDate.split('-') as [string, string, string];
-  return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' })
-    .format(new Date(Number(year), Number(month) - 1, Number(day)));
+  return format(parseISO(isoDate), 'd MMM yyyy', { locale: ptBR });
+}
+
+/** Returns today as YYYY-MM-DD. */
+export function today(): string {
+  return format(new Date(), 'yyyy-MM-dd');
+}
+
+/** Returns the current month as YYYY-MM. */
+export function currentMonth(): string {
+  return format(new Date(), 'yyyy-MM');
 }

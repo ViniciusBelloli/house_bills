@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { eachDayOfInterval, parseISO, format } from 'date-fns';
 import { useImmer } from 'use-immer';
 import { buildMonthlySummary } from '@house-bills/bills-core';
 import type { MonthlyBillData, UtilityBill, ResidentDailyWeights } from '@house-bills/bills-core';
@@ -13,14 +14,9 @@ import { getActiveResidents } from '@/db';
 
 function getRange(start: string, end: string): string[] {
   if (!start || !end || start > end) return [];
-  const dates: string[] = [];
-  const cur = new Date(start + 'T00:00:00Z');
-  const end_ = new Date(end + 'T00:00:00Z');
-  while (cur <= end_) {
-    dates.push(cur.toISOString().slice(0, 10));
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return dates;
+  return eachDayOfInterval({ start: parseISO(start), end: parseISO(end) }).map((d) =>
+    format(d, 'yyyy-MM-dd'),
+  );
 }
 
 const MONTH_LABELS: Record<string, string> = {
@@ -132,7 +128,7 @@ export function MonthFormPage({ initialData }: Props) {
   const [form, updateForm] = useImmer<FormState>(() => {
     if (initialData) return initFromData(initialData);
     // New month: pre-populate from active DB residents
-    const targetMonth = new Date().toISOString().slice(0, 7);
+    const targetMonth = format(new Date(), 'yyyy-MM');
     const active = getActiveResidents(dbResidents, targetMonth);
     return {
       monthId: '',
@@ -155,7 +151,7 @@ export function MonthFormPage({ initialData }: Props) {
   const [defaultsApplied, setDefaultsApplied] = useState(isEdit);
   useEffect(() => {
     if (defaultsApplied || dbResidents.length === 0) return;
-    const targetMonth = new Date().toISOString().slice(0, 7);
+    const targetMonth = format(new Date(), 'yyyy-MM');
     const active = getActiveResidents(dbResidents, targetMonth);
     if (active.length > 0) {
       updateForm((draft) => {

@@ -1,19 +1,10 @@
+import { eachDayOfInterval, parseISO, format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import type { MonthlyBillData, UtilityBill } from '@house-bills/bills-core';
 
 interface Props {
   utility: UtilityBill;
   residents: MonthlyBillData['residents'];
-}
-
-function getDates(start: string, end: string): string[] {
-  const dates: string[] = [];
-  const cur = new Date(start + 'T00:00:00Z');
-  const endD = new Date(end + 'T00:00:00Z');
-  while (cur <= endD) {
-    dates.push(cur.toISOString().slice(0, 10));
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return dates;
 }
 
 const WEIGHT_COLORS: Record<string, string> = {
@@ -24,15 +15,18 @@ const WEIGHT_COLORS: Record<string, string> = {
 
 function weightColor(w: number | null | undefined): string {
   if (w == null) return WEIGHT_COLORS.absent!;
-  const key = String(w);
-  return WEIGHT_COLORS[key] ?? 'bg-blue-100 text-blue-700';
+  return WEIGHT_COLORS[String(w)] ?? 'bg-blue-100 text-blue-700';
 }
 
 export function AttendanceGrid({ utility, residents }: Props) {
-  const dates = getDates(utility.periodStart, utility.periodEnd);
+  const days = eachDayOfInterval({
+    start: parseISO(utility.periodStart),
+    end: parseISO(utility.periodEnd),
+  });
+  const dates = days.map((d) => format(d, 'yyyy-MM-dd'));
   const activeResidents = residents.filter((r) => r.resident !== 'null');
 
-  // Group dates by month for compact rendering
+  // Group dates by month for the header
   const months: Map<string, string[]> = new Map();
   for (const d of dates) {
     const ym = d.slice(0, 7);
@@ -48,19 +42,17 @@ export function AttendanceGrid({ utility, residents }: Props) {
             <th className="text-left pr-3 py-1 font-medium text-muted-foreground w-24 sticky left-0 bg-white">
               Resident
             </th>
-            {Array.from(months.entries()).map(([ym, days]) => (
-              <th key={ym} colSpan={days.length} className="text-center px-1 pb-1 font-normal text-muted-foreground border-b">
-                {new Intl.DateTimeFormat('pt-PT', { month: 'short', year: '2-digit' }).format(
-                  new Date(ym + '-01'),
-                )}
+            {Array.from(months.entries()).map(([ym, ds]) => (
+              <th key={ym} colSpan={ds.length} className="text-center px-1 pb-1 font-normal text-muted-foreground border-b">
+                {format(parseISO(ym + '-01'), 'MMM yy', { locale: ptBR })}
               </th>
             ))}
           </tr>
           <tr>
             <th className="sticky left-0 bg-white" />
-            {dates.map((d) => (
-              <th key={d} className="px-0.5 pb-1 font-normal text-muted-foreground" style={{ minWidth: 22 }}>
-                {d.slice(8)} {/* day number */}
+            {days.map((d) => (
+              <th key={d.toISOString()} className="px-0.5 pb-1 font-normal text-muted-foreground" style={{ minWidth: 22 }}>
+                {format(d, 'd')}
               </th>
             ))}
           </tr>

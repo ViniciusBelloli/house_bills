@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { format } from 'date-fns';
 import type { MonthlyBillData } from '@house-bills/bills-core';
 
 export interface ResidentRecord {
@@ -39,6 +40,6 @@ export function getActiveResidents(residents: ResidentRecord[], monthId: string)
 
 /** Whether a resident is active today. */
 export function isActiveToday(r: ResidentRecord): boolean {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = format(new Date(), 'yyyy-MM-dd');
   return !r.exitDate || r.exitDate >= today;
 }

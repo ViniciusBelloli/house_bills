@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useImmer } from 'use-immer';
+import { format } from 'date-fns';
 import { useResidents, useSaveAllResidents } from '@/hooks/useResidents';
 import { isActiveToday, type ResidentRecord } from '@/db';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -138,7 +139,7 @@ export function ResidentsPage() {
       draft.push({
         _key: uid(),
         name: '',
-        joinDate: new Date().toISOString().slice(0, 10),
+        joinDate: format(new Date(), 'yyyy-MM-dd'),
         exitDate: null,
         defaultWeight: 1,
       });
