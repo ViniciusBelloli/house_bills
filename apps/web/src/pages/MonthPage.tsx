@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { buildMonthlySummary } from '@house-bills/bills-core';
 import { useMonthlyData } from '@/hooks/useMonthlyData';
-import { isLocalMonth } from '@/context/DataContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AttendanceGrid } from '@/components/AttendanceGrid';
 import { formatEur, formatDate } from '@/lib/utils';
@@ -15,9 +14,12 @@ const UTILITY_LABELS: Record<string, string> = {
 
 export function MonthPage() {
   const { monthId } = useParams<{ monthId: string }>();
-  const data = useMonthlyData(monthId ?? '');
+  const { data, isLoading } = useMonthlyData(monthId ?? '');
   const [openAttendance, setOpenAttendance] = useState<string | null>(null);
 
+  if (isLoading) {
+    return <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>;
+  }
   if (!data) {
     return (
       <div className="p-8 text-center text-muted-foreground">
@@ -34,11 +36,6 @@ export function MonthPage() {
       <div className="flex items-center gap-3">
         <Link to="/" className="text-sm text-muted-foreground hover:underline">← All months</Link>
         <h1 className="text-2xl font-semibold">{data.monthLabel}</h1>
-        {isLocalMonth(data.monthId) && (
-          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 ml-1">
-            local edit
-          </span>
-        )}
         <Link to={`/month/${data.monthId}/edit`}
           className="ml-auto text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors">
           Edit

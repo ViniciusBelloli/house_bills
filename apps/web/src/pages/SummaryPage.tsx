@@ -9,7 +9,7 @@ import { GasDurationChart } from '@/components/GasDurationChart';
 import { formatEur } from '@/lib/utils';
 
 export function SummaryPage() {
-  const months = useAllMonthlyData();
+  const { data: months = [] } = useAllMonthlyData();
   const summaries = months.map(buildMonthlySummary);
   const cylinderRecords = getGasCylinderRecords(months);
 

@@ -1,10 +1,13 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useImmer } from 'use-immer';
 import { buildMonthlySummary } from '@house-bills/bills-core';
 import type { MonthlyBillData, UtilityBill, ResidentDailyWeights } from '@house-bills/bills-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatEur } from '@/lib/utils';
-import { useDataContext, getActiveResidents } from '@/context/DataContext';
+import { useSaveMonth } from '@/hooks/useMonths';
+import { useResidents } from '@/hooks/useResidents';
+import { getActiveResidents } from '@/db';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -12,8 +15,8 @@ function getRange(start: string, end: string): string[] {
   if (!start || !end || start > end) return [];
   const dates: string[] = [];
   const cur = new Date(start + 'T00:00:00Z');
-  const endDate = new Date(end + 'T00:00:00Z');
-  while (cur <= endDate) {
+  const end_ = new Date(end + 'T00:00:00Z');
+  while (cur <= end_) {
     dates.push(cur.toISOString().slice(0, 10));
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
@@ -36,19 +39,22 @@ function uid() { return String(++_seq); }
 // ─── form state types ─────────────────────────────────────────────────────────
 
 interface ResidentEntry { id: string; name: string; defaultWeight: string }
-
-interface UtilityForm {
-  total: string; periodStart: string; periodEnd: string; notes: string;
-}
-
-interface CylinderEntry {
-  id: string; total: string; buyDate: string; installDate: string; notes: string;
-}
+interface UtilityForm { total: string; periodStart: string; periodEnd: string; notes: string }
+interface CylinderEntry { id: string; total: string; buyDate: string; installDate: string; notes: string }
 
 type UtilityKey = 'electricity' | 'gas' | 'water';
 const UTILITY_LABELS: Record<UtilityKey, string> = { electricity: 'Luz', gas: 'Gás', water: 'Água' };
-
 type WeightState = Record<string, Record<UtilityKey, Record<string, string>>>;
+
+interface FormState {
+  monthId: string;
+  utilities: Record<UtilityKey, UtilityForm>;
+  internet: string;
+  gasType: 'cylinder' | 'pipe';
+  cylinders: CylinderEntry[];
+  residents: ResidentEntry[];
+  weights: WeightState;
+}
 
 function emptyUtility(): UtilityForm {
   return { total: '', periodStart: '', periodEnd: '', notes: '' };
@@ -59,33 +65,25 @@ function emptyCylinder(): CylinderEntry {
 
 // ─── converter: MonthlyBillData → form state ──────────────────────────────────
 
-function initFromData(data: MonthlyBillData) {
+function initFromData(data: MonthlyBillData): FormState {
   const residents: ResidentEntry[] = data.residents
     .filter((r) => r.resident !== 'null')
     .map((r) => {
-      // Detect most-common non-null weight as default
       const ws = Object.values(r.days).filter((w): w is number => w != null);
       const freq: Record<string, number> = {};
       for (const w of ws) freq[String(w)] = (freq[String(w)] ?? 0) + 1;
-      const best = Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '1.0';
+      const best = Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '1';
       return { id: uid(), name: r.resident, defaultWeight: best };
     });
 
   const nameToId = new Map(residents.map((r) => [r.name, r.id]));
 
-  const utilitiesForm: Record<UtilityKey, UtilityForm> = {
-    electricity: emptyUtility(),
-    gas: emptyUtility(),
-    water: emptyUtility(),
+  const utilities: Record<UtilityKey, UtilityForm> = {
+    electricity: emptyUtility(), gas: emptyUtility(), water: emptyUtility(),
   };
   for (const u of data.utilities) {
     const key = u.type as UtilityKey;
-    utilitiesForm[key] = {
-      total: String(u.total),
-      periodStart: u.periodStart,
-      periodEnd: u.periodEnd,
-      notes: u.notes ?? '',
-    };
+    utilities[key] = { total: String(u.total), periodStart: u.periodStart, periodEnd: u.periodEnd, notes: u.notes ?? '' };
   }
 
   const weights: WeightState = {};
@@ -93,139 +91,149 @@ function initFromData(data: MonthlyBillData) {
     const id = nameToId.get(r.resident);
     if (!id) continue;
     for (const utilKey of (['electricity', 'gas', 'water'] as UtilityKey[])) {
-      const u = utilitiesForm[utilKey];
+      const u = utilities[utilKey];
       if (!u.periodStart || !u.periodEnd) continue;
-      const utilWeights: Record<string, string> = {};
+      const w: Record<string, string> = {};
       for (const date of getRange(u.periodStart, u.periodEnd)) {
-        const w = r.days[date];
-        utilWeights[date] = w != null ? String(w) : '';
+        const v = r.days[date];
+        w[date] = v != null ? String(v) : '';
       }
-      weights[id] = { ...(weights[id] ?? {}), [utilKey]: utilWeights };
+      weights[id] ??= { electricity: {}, gas: {}, water: {} };
+      weights[id][utilKey] = w;
     }
   }
 
   const gasType = data.gasType ?? 'cylinder';
   const cylinders: CylinderEntry[] = (data.gasCylinders ?? []).map((c) => ({
-    id: uid(),
-    total: String(c.total),
-    buyDate: c.buyDate ?? '',
-    installDate: c.installDate ?? '',
-    notes: c.notes ?? '',
+    id: uid(), total: String(c.total), buyDate: c.buyDate ?? '', installDate: c.installDate ?? '', notes: c.notes ?? '',
   }));
 
   return {
-    residents,
-    utilitiesForm,
-    weights,
+    monthId: data.monthId,
+    utilities,
+    internet: data.internetFixedCost != null ? String(data.internetFixedCost) : '',
     gasType: gasType as 'cylinder' | 'pipe',
     cylinders: cylinders.length ? cylinders : [emptyCylinder()],
-    internet: data.internetFixedCost != null ? String(data.internetFixedCost) : '',
+    residents,
+    weights,
   };
 }
 
 // ─── component ────────────────────────────────────────────────────────────────
 
-interface Props {
-  initialData?: MonthlyBillData;
-}
+interface Props { initialData?: MonthlyBillData }
 
 export function MonthFormPage({ initialData }: Props) {
   const navigate = useNavigate();
-  const { saveMonth, residents: residentConfig } = useDataContext();
+  const saveMonth = useSaveMonth();
+  const { data: dbResidents = [] } = useResidents();
   const isEdit = !!initialData;
-  const [saved, setSaved] = useState(false);
 
-  const init = initialData ? initFromData(initialData) : null;
-
-  const [monthId, setMonthId] = useState(initialData?.monthId ?? '');
-  const [utilities, setUtilities] = useState<Record<UtilityKey, UtilityForm>>(
-    init?.utilitiesForm ?? { electricity: emptyUtility(), gas: emptyUtility(), water: emptyUtility() },
-  );
-  const [internet, setInternet] = useState(init?.internet ?? '');
-  const [gasType, setGasType] = useState<'cylinder' | 'pipe'>(init?.gasType ?? 'cylinder');
-  const [cylinders, setCylinders] = useState<CylinderEntry[]>(init?.cylinders ?? [emptyCylinder()]);
-  const [residents, setResidents] = useState<ResidentEntry[]>(() => {
-    if (init?.residents) return init.residents;
-    // Pre-populate from active residents config (for new months)
-    const targetMonth = initialData?.monthId ?? new Date().toISOString().slice(0, 7);
-    const active = getActiveResidents(residentConfig, targetMonth);
-    if (active.length > 0) {
-      return active.map((r) => ({ id: uid(), name: r.name, defaultWeight: '1.0' }));
-    }
-    return [
-      { id: uid(), name: 'Vinicius', defaultWeight: '1.2' },
-      { id: uid(), name: 'Julia', defaultWeight: '1.2' },
-      { id: uid(), name: 'Henrique', defaultWeight: '1.0' },
-    ];
+  const [form, updateForm] = useImmer<FormState>(() => {
+    if (initialData) return initFromData(initialData);
+    // New month: pre-populate from active DB residents
+    const targetMonth = new Date().toISOString().slice(0, 7);
+    const active = getActiveResidents(dbResidents, targetMonth);
+    return {
+      monthId: '',
+      utilities: { electricity: emptyUtility(), gas: emptyUtility(), water: emptyUtility() },
+      internet: '',
+      gasType: 'cylinder',
+      cylinders: [emptyCylinder()],
+      residents: active.length > 0
+        ? active.map((r) => ({ id: uid(), name: r.name, defaultWeight: String(r.defaultWeight) }))
+        : [
+            { id: uid(), name: 'Vinicius', defaultWeight: '1' },
+            { id: uid(), name: 'Julia', defaultWeight: '1' },
+            { id: uid(), name: 'Henrique', defaultWeight: '1' },
+          ],
+      weights: {},
+    };
   });
-  const [weights, setWeights] = useState<WeightState>(init?.weights ?? {});
+
+  // When DB residents load after mount (new month only), update resident list
+  const [defaultsApplied, setDefaultsApplied] = useState(isEdit);
+  useEffect(() => {
+    if (defaultsApplied || dbResidents.length === 0) return;
+    const targetMonth = new Date().toISOString().slice(0, 7);
+    const active = getActiveResidents(dbResidents, targetMonth);
+    if (active.length > 0) {
+      updateForm((draft) => {
+        draft.residents = active.map((r) => ({ id: uid(), name: r.name, defaultWeight: String(r.defaultWeight) }));
+      });
+    }
+    setDefaultsApplied(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbResidents.length]);
 
   // ── resident management ────────────────────────────────────────────────────
 
   const addResident = () =>
-    setResidents((p) => [...p, { id: uid(), name: '', defaultWeight: '1.0' }]);
-  const removeResident = (id: string) => setResidents((p) => p.filter((r) => r.id !== id));
+    updateForm((d) => { d.residents.push({ id: uid(), name: '', defaultWeight: '1' }); });
+  const removeResident = (id: string) =>
+    updateForm((d) => { d.residents = d.residents.filter((r) => r.id !== id); });
   const updateResident = (id: string, field: keyof ResidentEntry, value: string) =>
-    setResidents((p) => p.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    updateForm((d) => {
+      const r = d.residents.find((r) => r.id === id);
+      if (r) r[field] = value;
+    });
 
   // ── utility fields ─────────────────────────────────────────────────────────
 
-  const setUtilityField = useCallback(
-    (key: UtilityKey, field: keyof UtilityForm, value: string) =>
-      setUtilities((p) => ({ ...p, [key]: { ...p[key], [field]: value } })),
-    [],
-  );
+  const setUtilityField = (key: UtilityKey, field: keyof UtilityForm, value: string) =>
+    updateForm((d) => { d.utilities[key][field] = value; });
 
   // ── cylinder management ────────────────────────────────────────────────────
 
-  const addCylinder = () => setCylinders((p) => [...p, emptyCylinder()]);
+  const addCylinder = () =>
+    updateForm((d) => { d.cylinders.push(emptyCylinder()); });
   const removeCylinder = (id: string) =>
-    setCylinders((p) => (p.length > 1 ? p.filter((c) => c.id !== id) : p));
+    updateForm((d) => { if (d.cylinders.length > 1) d.cylinders = d.cylinders.filter((c) => c.id !== id); });
   const updateCylinder = (id: string, field: keyof CylinderEntry, value: string) =>
-    setCylinders((p) => p.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
+    updateForm((d) => {
+      const c = d.cylinders.find((c) => c.id === id);
+      if (c) c[field] = value;
+    });
 
-  // Auto-sync gas utility total from cylinder totals
-  const cylinderTotal = cylinders.reduce((s, c) => s + (parseFloat(c.total) || 0), 0);
+  const cylinderTotal = form.cylinders.reduce((s, c) => s + (parseFloat(c.total) || 0), 0);
 
   // ── weight editing ─────────────────────────────────────────────────────────
 
   const setWeight = (resId: string, utilKey: UtilityKey, date: string, value: string) =>
-    setWeights((p) => ({
-      ...p,
-      [resId]: { ...(p[resId] ?? {}), [utilKey]: { ...(p[resId]?.[utilKey] ?? {}), [date]: value } },
-    }));
+    updateForm((d) => {
+      d.weights[resId] ??= { electricity: {}, gas: {}, water: {} };
+      d.weights[resId][utilKey][date] = value;
+    });
 
   const fillAll = (resId: string, utilKey: UtilityKey, dates: string[], weight: string) =>
-    setWeights((p) => ({
-      ...p,
-      [resId]: { ...(p[resId] ?? {}), [utilKey]: Object.fromEntries(dates.map((d) => [d, weight])) },
-    }));
+    updateForm((d) => {
+      d.weights[resId] ??= { electricity: {}, gas: {}, water: {} };
+      d.weights[resId][utilKey] = Object.fromEntries(dates.map((date) => [date, weight]));
+    });
 
   const clearAll = (resId: string, utilKey: UtilityKey, dates: string[]) =>
-    setWeights((p) => ({
-      ...p,
-      [resId]: { ...(p[resId] ?? {}), [utilKey]: Object.fromEntries(dates.map((d) => [d, ''])) },
-    }));
+    updateForm((d) => {
+      d.weights[resId] ??= { electricity: {}, gas: {}, water: {} };
+      d.weights[resId][utilKey] = Object.fromEntries(dates.map((date) => [date, '']));
+    });
 
   // ── build output data ──────────────────────────────────────────────────────
 
   const buildData = (): MonthlyBillData | null => {
-    if (!monthId) return null;
-    const active = residents.filter((r) => r.name.trim());
+    if (!form.monthId) return null;
+    const active = form.residents.filter((r) => r.name.trim());
 
-    const gasTotal = gasType === 'cylinder' ? cylinderTotal : parseFloat(utilities.gas.total) || 0;
+    const gasTotal = form.gasType === 'cylinder' ? cylinderTotal : parseFloat(form.utilities.gas.total) || 0;
 
-    const utilityBills: UtilityBill[] = (
-      Object.entries(utilities) as [UtilityKey, UtilityForm][]
-    )
+    const utilityBills: UtilityBill[] = (Object.entries(form.utilities) as [UtilityKey, UtilityForm][])
       .filter(([k, u]) => {
-        const total = k === 'gas' && gasType === 'cylinder' ? gasTotal : parseFloat(u.total) || 0;
+        const total = k === 'gas' && form.gasType === 'cylinder' ? gasTotal : parseFloat(u.total) || 0;
         return total > 0 && u.periodStart && u.periodEnd;
       })
       .map(([type, u]) => ({
         type,
         label: UTILITY_LABELS[type],
-        total: type === 'gas' && gasType === 'cylinder' ? gasTotal : parseFloat(u.total) || 0,
+        total: type === 'gas' && form.gasType === 'cylinder' ? gasTotal : parseFloat(u.total) || 0,
         periodStart: u.periodStart,
         periodEnd: u.periodEnd,
         notes: u.notes || null,
@@ -233,11 +241,11 @@ export function MonthFormPage({ initialData }: Props) {
 
     const residentData: ResidentDailyWeights[] = active.map((r) => {
       const days: Record<string, number | null> = {};
-      for (const [utilKey, u] of Object.entries(utilities) as [UtilityKey, UtilityForm][]) {
+      for (const [utilKey, u] of Object.entries(form.utilities) as [UtilityKey, UtilityForm][]) {
         if (!u.periodStart || !u.periodEnd) continue;
         for (const date of getRange(u.periodStart, u.periodEnd)) {
           if (date in days) continue;
-          const raw = weights[r.id]?.[utilKey]?.[date];
+          const raw = form.weights[r.id]?.[utilKey]?.[date];
           days[date] = raw ? parseFloat(raw) || null : null;
         }
       }
@@ -245,8 +253,8 @@ export function MonthFormPage({ initialData }: Props) {
     });
 
     const gasCylindersData =
-      gasType === 'cylinder'
-        ? cylinders
+      form.gasType === 'cylinder'
+        ? form.cylinders
             .filter((c) => c.total || c.installDate || c.buyDate)
             .map((c) => ({
               total: parseFloat(c.total) || 0,
@@ -257,12 +265,12 @@ export function MonthFormPage({ initialData }: Props) {
         : undefined;
 
     return {
-      monthId,
-      monthLabel: buildMonthLabel(monthId),
+      monthId: form.monthId,
+      monthLabel: buildMonthLabel(form.monthId),
       utilities: utilityBills,
       residents: residentData,
-      internetFixedCost: internet ? parseFloat(internet) || null : null,
-      gasType,
+      internetFixedCost: form.internet ? parseFloat(form.internet) || null : null,
+      gasType: form.gasType,
       gasCylinders: gasCylindersData,
     };
   };
@@ -270,11 +278,10 @@ export function MonthFormPage({ initialData }: Props) {
   const data = buildData();
   const summary = data && data.utilities.length > 0 ? buildMonthlySummary(data) : null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!data) return;
-    saveMonth(data);
-    setSaved(true);
-    if (isEdit) navigate(`/month/${data.monthId}`);
+    await saveMonth.mutateAsync(data);
+    navigate(isEdit ? `/month/${data.monthId}` : '/');
   };
 
   const handleDownload = () => {
@@ -306,12 +313,9 @@ export function MonthFormPage({ initialData }: Props) {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        {isEdit
-          ? 'Edit the data below and save. Changes are stored locally in your browser. '
-          : 'Fill in details and save. Changes are stored locally in your browser. '}
-        Download the JSON and commit it to{' '}
-        <code className="text-xs bg-muted px-1 py-0.5 rounded">data/months/</code>{' '}
-        for permanent storage.
+        {isEdit ? 'Edit the data below and save.' : 'Fill in details and save.'}{' '}
+        Changes are stored in the local database. Download the JSON to commit it to{' '}
+        <code className="text-xs bg-muted px-1 py-0.5 rounded">data/months/</code>.
       </p>
 
       {/* ── Month + internet ── */}
@@ -321,14 +325,15 @@ export function MonthFormPage({ initialData }: Props) {
           <label className="space-y-1">
             <span className="text-xs text-muted-foreground">Month (YYYY-MM)</span>
             <input type="month" className="w-full border rounded-md px-3 py-1.5 text-sm"
-              value={monthId} onChange={(e) => setMonthId(e.target.value)}
+              value={form.monthId} onChange={(e) => updateForm((d) => { d.monthId = e.target.value; })}
               disabled={isEdit}
             />
           </label>
           <label className="space-y-1">
             <span className="text-xs text-muted-foreground">Internet / MEO fixed cost (€)</span>
             <input type="number" step="0.01" className="w-full border rounded-md px-3 py-1.5 text-sm"
-              value={internet} onChange={(e) => setInternet(e.target.value)} placeholder="0.00"
+              value={form.internet} onChange={(e) => updateForm((d) => { d.internet = e.target.value; })}
+              placeholder="0.00"
             />
           </label>
         </CardContent>
@@ -347,23 +352,22 @@ export function MonthFormPage({ initialData }: Props) {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {residents.map((r) => (
-              <div key={r.id} className="flex items-center gap-2">
+            {form.residents.map((r) => (
+              <div key={r.id} className="flex items-center gap-2 flex-wrap">
                 <input type="text" placeholder="Name"
-                  className="flex-1 border rounded-md px-3 py-1.5 text-sm"
+                  className="flex-1 min-w-32 border rounded-md px-3 py-1.5 text-sm"
                   value={r.name} onChange={(e) => updateResident(r.id, 'name', e.target.value)}
                 />
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Default weight</span>
-                <select className="border rounded-md px-2 py-1.5 text-sm"
-                  value={r.defaultWeight}
-                  onChange={(e) => updateResident(r.id, 'defaultWeight', e.target.value)}>
-                  <option value="1.2">1.2</option>
-                  <option value="1.0">1.0</option>
-                  <option value="0.8">0.8</option>
-                  <option value="0.5">0.5</option>
-                </select>
+                <label className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">Default weight</span>
+                  <input type="number" step="0.1" min="0.1"
+                    className="w-20 border rounded-md px-2 py-1.5 text-sm"
+                    value={r.defaultWeight}
+                    onChange={(e) => updateResident(r.id, 'defaultWeight', e.target.value)}
+                  />
+                </label>
                 <button onClick={() => removeResident(r.id)}
-                  className="text-muted-foreground hover:text-destructive transition-colors w-6 text-center"
+                  className="text-muted-foreground hover:text-destructive transition-colors w-6 text-center shrink-0"
                   title="Remove">×</button>
               </div>
             ))}
@@ -372,11 +376,11 @@ export function MonthFormPage({ initialData }: Props) {
       </Card>
 
       {/* ── Utilities ── */}
-      {(Object.keys(utilities) as UtilityKey[]).map((utilKey) => {
-        const u = utilities[utilKey];
-        const isCylinderGas = utilKey === 'gas' && gasType === 'cylinder';
+      {(Object.keys(form.utilities) as UtilityKey[]).map((utilKey) => {
+        const u = form.utilities[utilKey];
+        const isCylinderGas = utilKey === 'gas' && form.gasType === 'cylinder';
         const dates = isCylinderGas ? [] : getRange(u.periodStart, u.periodEnd);
-        const activeResidents = residents.filter((r) => r.name.trim());
+        const activeResidents = form.residents.filter((r) => r.name.trim());
 
         return (
           <Card key={utilKey}>
@@ -392,14 +396,15 @@ export function MonthFormPage({ initialData }: Props) {
                   {(['cylinder', 'pipe'] as const).map((t) => (
                     <label key={t} className="flex items-center gap-1.5 text-sm cursor-pointer">
                       <input type="radio" name="gasType" value={t}
-                        checked={gasType === t} onChange={() => setGasType(t)} />
+                        checked={form.gasType === t}
+                        onChange={() => updateForm((d) => { d.gasType = t; })} />
                       {t === 'cylinder' ? 'Cylinder (botija) — equal split' : 'Pipe (canalizado) — weighted split'}
                     </label>
                   ))}
                 </div>
               )}
 
-              {/* Utility totals / dates — pipe gas and non-gas utilities */}
+              {/* Non-cylinder: total + dates + notes */}
               {!isCylinderGas && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <label className="space-y-1">
@@ -431,10 +436,9 @@ export function MonthFormPage({ initialData }: Props) {
                 </div>
               )}
 
-              {/* Cylinder gas: billing period + cylinders list */}
+              {/* Cylinder gas */}
               {isCylinderGas && (
                 <div className="space-y-4">
-                  {/* Billing period (used for display, not calculation) */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <label className="space-y-1">
                       <span className="text-xs text-muted-foreground">Billing start</span>
@@ -456,18 +460,17 @@ export function MonthFormPage({ initialData }: Props) {
                     </div>
                   </div>
 
-                  {/* Cylinder entries */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-muted-foreground">
-                        Cylinders ({cylinders.length})
+                        Cylinders ({form.cylinders.length})
                       </span>
                       <button onClick={addCylinder}
                         className="text-xs px-2 py-1 rounded border hover:bg-muted transition-colors">
                         + Add cylinder
                       </button>
                     </div>
-                    {cylinders.map((c, idx) => (
+                    {form.cylinders.map((c, idx) => (
                       <div key={c.id} className="border rounded-lg p-3 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-medium">Cylinder {idx + 1}</span>
@@ -480,29 +483,25 @@ export function MonthFormPage({ initialData }: Props) {
                             <span className="text-xs text-muted-foreground">Cost (€)</span>
                             <input type="number" step="0.01"
                               className="w-full border rounded-md px-3 py-1.5 text-sm"
-                              value={c.total}
-                              onChange={(e) => updateCylinder(c.id, 'total', e.target.value)}
+                              value={c.total} onChange={(e) => updateCylinder(c.id, 'total', e.target.value)}
                             />
                           </label>
                           <label className="space-y-1">
                             <span className="text-xs text-muted-foreground">Buy date</span>
                             <input type="date" className="w-full border rounded-md px-3 py-1.5 text-sm"
-                              value={c.buyDate}
-                              onChange={(e) => updateCylinder(c.id, 'buyDate', e.target.value)}
+                              value={c.buyDate} onChange={(e) => updateCylinder(c.id, 'buyDate', e.target.value)}
                             />
                           </label>
                           <label className="space-y-1">
                             <span className="text-xs text-muted-foreground">Install date</span>
                             <input type="date" className="w-full border rounded-md px-3 py-1.5 text-sm"
-                              value={c.installDate}
-                              onChange={(e) => updateCylinder(c.id, 'installDate', e.target.value)}
+                              value={c.installDate} onChange={(e) => updateCylinder(c.id, 'installDate', e.target.value)}
                             />
                           </label>
                           <label className="space-y-1">
                             <span className="text-xs text-muted-foreground">Notes</span>
                             <input type="text" className="w-full border rounded-md px-3 py-1.5 text-sm"
-                              value={c.notes}
-                              onChange={(e) => updateCylinder(c.id, 'notes', e.target.value)}
+                              value={c.notes} onChange={(e) => updateCylinder(c.id, 'notes', e.target.value)}
                               placeholder="optional"
                             />
                           </label>
@@ -513,7 +512,7 @@ export function MonthFormPage({ initialData }: Props) {
                 </div>
               )}
 
-              {/* Daily weights grid (pipe gas + electricity + water) */}
+              {/* Daily weights grid */}
               {!isCylinderGas && dates.length > 0 && activeResidents.length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="text-xs border-collapse">
@@ -537,18 +536,24 @@ export function MonthFormPage({ initialData }: Props) {
                               <button
                                 className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-blue-50 text-blue-600 border-blue-200"
                                 onClick={() => fillAll(r.id, utilKey, dates, r.defaultWeight)}
-                                title="Fill all with default weight">all</button>
+                                title={`Fill all with weight ${r.defaultWeight}`}
+                              >
+                                all ({r.defaultWeight})
+                              </button>
                               <button
                                 className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-gray-50 text-muted-foreground"
                                 onClick={() => clearAll(r.id, utilKey, dates)}
-                                title="Clear all (absent)">none</button>
+                                title="Clear all (absent)"
+                              >
+                                none
+                              </button>
                             </div>
                           </td>
                           {dates.map((date) => (
                             <td key={date} className="px-0.5 py-0.5">
                               <input type="number" step="0.1" min="0"
                                 className="w-9 border rounded px-0.5 py-0.5 text-center text-xs"
-                                value={weights[r.id]?.[utilKey]?.[date] ?? ''}
+                                value={form.weights[r.id]?.[utilKey]?.[date] ?? ''}
                                 onChange={(e) => setWeight(r.id, utilKey, date, e.target.value)}
                                 placeholder="–"
                               />
@@ -608,13 +613,13 @@ export function MonthFormPage({ initialData }: Props) {
           className="text-sm px-4 py-2 rounded-md border hover:bg-muted transition-colors">
           Cancel
         </button>
-        <button onClick={handleDownload} disabled={!data || !monthId}
+        <button onClick={handleDownload} disabled={!data || !form.monthId}
           className="text-sm px-4 py-2 rounded-md border hover:bg-muted transition-colors disabled:opacity-40">
-          Download {monthId ? `${monthId}.json` : 'JSON'}
+          Download {form.monthId ? `${form.monthId}.json` : 'JSON'}
         </button>
-        <button onClick={handleSave} disabled={!data || !monthId}
+        <button onClick={handleSave} disabled={!data || !form.monthId || saveMonth.isPending}
           className="text-sm px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40">
-          {saved ? '✓ Saved' : 'Save'}
+          {saveMonth.isPending ? 'Saving…' : 'Save'}
         </button>
       </div>
     </div>
