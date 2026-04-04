@@ -15,16 +15,20 @@ interface Props {
   summaries: MonthlySummary[];
 }
 
-export function UtilityTrendChart({ summaries }: Props) {
-  const hasInternet = summaries.some((s) => s.internetTotal > 0);
+export function AvgPerPersonChart({ summaries }: Props) {
+  const data = summaries.map((s) => {
+    const count = s.residentTotals.length;
+    if (count === 0) return { month: s.monthLabel.split(' ')[0], Luz: 0, Gás: 0, Água: 0, Internet: 0 };
+    return {
+      month: s.monthLabel.split(' ')[0],
+      Luz: +(s.electricityTotal / count).toFixed(2),
+      Gás: +(s.gasTotal / count).toFixed(2),
+      Água: +(s.waterTotal / count).toFixed(2),
+      Internet: +(s.internetTotal / count).toFixed(2),
+    };
+  });
 
-  const data = summaries.map((s) => ({
-    month: s.monthLabel.split(' ')[0],
-    Luz: +s.electricityTotal.toFixed(2),
-    Gás: +s.gasTotal.toFixed(2),
-    Água: +s.waterTotal.toFixed(2),
-    Internet: +s.internetTotal.toFixed(2),
-  }));
+  const hasInternet = summaries.some((s) => s.internetTotal > 0);
 
   return (
     <ResponsiveContainer width="100%" height={280}>
