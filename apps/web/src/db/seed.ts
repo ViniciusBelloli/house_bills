@@ -19,11 +19,11 @@ interface StaticResident {
   defaultWeight?: number;
 }
 
-export async function seedIfEmpty(): Promise<void> {
-  // Use a meta key to avoid re-seeding on every load
-  const seeded = await db.table('months').count().catch(() => 0);
+// TanStack Query requires queryFn to return a non-undefined value.
+export async function seedIfEmpty(): Promise<true> {
+  const monthCount = await db.months.count().catch(() => 0);
 
-  if (seeded === 0) {
+  if (monthCount === 0) {
     const months = Object.values(monthFiles)
       .map((mod) => MonthlyBillDataSchema.safeParse(mod.default))
       .filter((r) => r.success)
@@ -31,7 +31,7 @@ export async function seedIfEmpty(): Promise<void> {
     if (months.length > 0) await db.months.bulkPut(months);
   }
 
-  const residentCount = await db.residents.count();
+  const residentCount = await db.residents.count().catch(() => 0);
   if (residentCount === 0) {
     const raw = Object.values(residentsFile)[0]?.default;
     if (Array.isArray(raw)) {
@@ -44,4 +44,6 @@ export async function seedIfEmpty(): Promise<void> {
       await db.residents.bulkAdd(records);
     }
   }
+
+  return true;
 }
