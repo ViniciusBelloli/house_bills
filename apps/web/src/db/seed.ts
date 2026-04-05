@@ -1,7 +1,7 @@
-import { db } from './index';
+import { supabase } from '@/lib/supabase';
 import { MonthlyBillDataSchema } from '@house-bills/bills-core';
 
-// Static files loaded at build time — paths are relative from this file (apps/web/src/db/)
+// Static files loaded at build time
 const monthFiles = import.meta.glob<{ default: unknown }>(
   '../../../../data/months/*.json',
   { eager: true },
@@ -19,29 +19,41 @@ interface StaticResident {
   defaultWeight?: number;
 }
 
-// TanStack Query requires queryFn to return a non-undefined value.
 export async function seedIfEmpty(): Promise<true> {
-  const monthCount = await db.months.count().catch(() => 0);
+  // Seed months if table is empty
+  const { count: monthCount } = await supabase
+    .from('months')
+    .select('*', { count: 'exact', head: true });
 
   if (monthCount === 0) {
     const months = Object.values(monthFiles)
       .map((mod) => MonthlyBillDataSchema.safeParse(mod.default))
       .filter((r) => r.success)
       .map((r) => r.data);
-    if (months.length > 0) await db.months.bulkPut(months);
+
+    if (months.length > 0) {
+      const rows = months.map((m) => ({ month_id: m.monthId, data: m }));
+      const { error } = await supabase.from('months').insert(rows);
+      if (error) throw error;
+    }
   }
 
-  const residentCount = await db.residents.count().catch(() => 0);
+  // Seed residents if table is empty
+  const { count: residentCount } = await supabase
+    .from('residents')
+    .select('*', { count: 'exact', head: true });
+
   if (residentCount === 0) {
     const raw = Object.values(residentsFile)[0]?.default;
     if (Array.isArray(raw)) {
-      const records = (raw as StaticResident[]).map((r) => ({
+      const rows = (raw as StaticResident[]).map((r) => ({
         name: r.name,
-        joinDate: r.joinDate,
-        exitDate: r.exitDate ?? null,
-        defaultWeight: r.defaultWeight ?? 1,
+        join_date: r.joinDate,
+        exit_date: r.exitDate ?? null,
+        default_weight: r.defaultWeight ?? 1,
       }));
-      await db.residents.bulkAdd(records);
+      const { error } = await supabase.from('residents').insert(rows);
+      if (error) throw error;
     }
   }
 

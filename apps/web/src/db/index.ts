@@ -1,29 +1,12 @@
-import Dexie, { type Table } from 'dexie';
 import { format } from 'date-fns';
-import type { MonthlyBillData } from '@house-bills/bills-core';
 
 export interface ResidentRecord {
-  id?: number;          // auto-increment PK
+  id?: number;
   name: string;
-  joinDate: string;     // ISO date
+  joinDate: string;
   exitDate: string | null;
-  defaultWeight: number; // default daily weight (1 = normal, 1.2 = heavier usage)
+  defaultWeight: number;
 }
-
-class HouseBillsDB extends Dexie {
-  months!: Table<MonthlyBillData, string>;
-  residents!: Table<ResidentRecord, number>;
-
-  constructor() {
-    super('house-bills');
-    this.version(1).stores({
-      months: 'monthId',
-      residents: '++id, name',
-    });
-  }
-}
-
-export const db = new HouseBillsDB();
 
 /** Returns residents active during a given YYYY-MM month. */
 export function getActiveResidents(residents: ResidentRecord[], monthId: string): ResidentRecord[] {
