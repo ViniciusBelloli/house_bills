@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { buildMonthlySummary, getGasCylinderRecords } from '@house-bills/bills-core';
 import { useAllMonthlyData } from '@/hooks/useMonthlyData';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UtilityTrendChart } from '@/components/UtilityTrendChart';
 import { ResidentTrendChart } from '@/components/ResidentTrendChart';
@@ -10,6 +11,7 @@ import { formatEur } from '@/lib/utils';
 
 export function SummaryPage() {
   const { data: months = [] } = useAllMonthlyData();
+  const { isAuthenticated, signOut } = useAuth();
   const summaries = months.map(buildMonthlySummary);
   const cylinderRecords = getGasCylinderRecords(months);
 
@@ -18,18 +20,35 @@ export function SummaryPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold tracking-tight">House Bills</h1>
         <div className="ml-auto flex items-center gap-2">
-          <Link
-            to="/residents"
-            className="text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors"
-          >
-            Members
-          </Link>
-          <Link
-            to="/new"
-            className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-          >
-            + New month
-          </Link>
+          {isAuthenticated ? (
+            <>
+              <Link
+                to="/residents"
+                className="text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors"
+              >
+                Members
+              </Link>
+              <Link
+                to="/new"
+                className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+              >
+                + New month
+              </Link>
+              <button
+                onClick={() => signOut()}
+                className="text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors"
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <Link
+              to="/login"
+              className="text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
       </div>
 

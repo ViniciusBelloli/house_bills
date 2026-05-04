@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { buildMonthlySummary } from '@house-bills/bills-core';
 import { useMonthlyData } from '@/hooks/useMonthlyData';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AttendanceGrid } from '@/components/AttendanceGrid';
 import { formatEur, formatDate } from '@/lib/utils';
@@ -15,6 +16,7 @@ const UTILITY_LABELS: Record<string, string> = {
 export function MonthPage() {
   const { monthId } = useParams<{ monthId: string }>();
   const { data, isLoading } = useMonthlyData(monthId ?? '');
+  const { isAuthenticated } = useAuth();
   const [openAttendance, setOpenAttendance] = useState<string | null>(null);
 
   if (isLoading) {
@@ -36,10 +38,12 @@ export function MonthPage() {
       <div className="flex items-center gap-3">
         <Link to="/" className="text-sm text-muted-foreground hover:underline">← All months</Link>
         <h1 className="text-2xl font-semibold">{data.monthLabel}</h1>
-        <Link to={`/month/${data.monthId}/edit`}
-          className="ml-auto text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors">
-          Edit
-        </Link>
+        {isAuthenticated && (
+          <Link to={`/month/${data.monthId}/edit`}
+            className="ml-auto text-sm px-3 py-1.5 rounded-md border hover:bg-muted transition-colors">
+            Edit
+          </Link>
+        )}
         <span className="text-xl font-bold">{formatEur(summary.grandTotal)}</span>
       </div>
 
