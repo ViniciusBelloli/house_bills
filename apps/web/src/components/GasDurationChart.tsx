@@ -10,10 +10,16 @@ import {
   ReferenceLine,
 } from 'recharts';
 import type { GasCylinderRecord } from '@house-bills/bills-core';
-import { formatDate } from '@/lib/utils';
+import { formatDate, today } from '@/lib/utils';
 
 interface Props {
   records: GasCylinderRecord[];
+}
+
+/** Days between an ISO install date and today (never negative). */
+function elapsedSinceInstall(installDate: string): number {
+  const ms = new Date(today() + 'T00:00:00Z').getTime() - new Date(installDate + 'T00:00:00Z').getTime();
+  return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
 }
 
 export function GasDurationChart({ records }: Props) {
@@ -24,9 +30,12 @@ export function GasDurationChart({ records }: Props) {
 
   const avg = known.reduce((s, r) => s + r.durationDays!, 0) / known.length;
 
+  // The still-in-use cylinder has no "next install" yet, so durationDays is null.
+  // Show its elapsed days so far instead of leaving the bar blank.
   const data = records.map((r) => ({
     label: r.chartLabel,
-    days: r.durationDays,
+    days: r.durationDays ?? elapsedSinceInstall(r.installDate),
+    ongoing: r.durationDays == null,
     installDate: r.installDate,
     buyDate: r.buyDate,
   }));
@@ -37,7 +46,7 @@ export function GasDurationChart({ records }: Props) {
         <span>Avg duration: <strong className="text-foreground">{avg.toFixed(1)} days</strong></span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-emerald-500" /> ≥ avg</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-amber-400" /> &lt; avg</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-gray-200" /> unknown</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-blue-400" /> in use</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
@@ -54,7 +63,7 @@ export function GasDurationChart({ records }: Props) {
                   <p>Installed: {d.installDate ? formatDate(d.installDate) : '—'}</p>
                   {d.buyDate && <p>Bought: {formatDate(d.buyDate)}</p>}
                   <p className="font-medium">
-                    Duration: {d.days != null ? `${d.days} days` : 'unknown'}
+                    {d.ongoing ? `In use: ${d.days} days so far` : `Duration: ${d.days} days`}
                   </p>
                 </div>
               );
@@ -70,13 +79,7 @@ export function GasDurationChart({ records }: Props) {
             {data.map((entry, i) => (
               <Cell
                 key={i}
-                fill={
-                  entry.days == null
-                    ? '#e5e7eb'
-                    : entry.days >= avg
-                    ? '#10b981'
-                    : '#f59e0b'
-                }
+                fill={entry.ongoing ? '#60a5fa' : entry.days >= avg ? '#10b981' : '#f59e0b'}
               />
             ))}
           </Bar>
